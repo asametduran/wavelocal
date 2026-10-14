@@ -3,16 +3,58 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
-body { @apply bg-base text-zinc-100 antialiased; font-family: Inter, ui-sans-serif, system-ui, sans-serif; overflow: hidden; }
+@supports (height: 100dvh) { html, body, #root { height: 100dvh; } }
+body {
+  @apply bg-base text-zinc-100 antialiased;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-thumb { background: #2a2a3a; border-radius: 8px; }
+
+/* Notch / home-indicator safe areas */
+.pt-safe { padding-top: env(safe-area-inset-top); }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Keyboard / D-pad focus ring on everything interactive */
+:focus { outline: none; }
+:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; border-radius: 8px; }
 
 input[type=range].slider {
   -webkit-appearance: none; appearance: none; height: 4px; border-radius: 999px; outline: none; cursor: pointer;
   background: linear-gradient(to right, #a78bfa var(--p, 0%), #2e2e40 var(--p, 0%));
+  touch-action: pan-y;
 }
 input[type=range].slider::-webkit-slider-thumb {
   -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: #fff; opacity: 0; transition: opacity .15s;
 }
 input[type=range].slider:hover::-webkit-slider-thumb, input[type=range].slider:focus-visible::-webkit-slider-thumb { opacity: 1; }
 input[type=range].slider::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: #fff; }
+/* always show the thumb on touch screens */
+@media (hover: none) {
+  input[type=range].slider { height: 6px; }
+  input[type=range].slider::-webkit-slider-thumb { opacity: 1; width: 16px; height: 16px; }
+  input[type=range].slider::-moz-range-thumb { width: 16px; height: 16px; }
+}
+
+/* ---- 10-foot UI (Smart TV / big screens): 1.5x scale, high contrast, thick focus ---- */
+html.tv { font-size: 24px; }
+html.tv body { background: #000; }
+html.tv svg.lucide { scale: 1.4; }
+html.tv .text-zinc-500, html.tv .text-zinc-600 { color: #b4b4c4; }
+html.tv .text-zinc-400 { color: #d4d4e0; }
+html.tv .border-white\/5 { border-color: rgba(255, 255, 255, .25); }
+html.tv :focus-visible {
+  outline: 4px solid #fff;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 8px rgba(167, 139, 250, .85);
+  border-radius: 12px;
+  transform: scale(1.04);
+  z-index: 5;
+}
+html.tv input[type=range].slider { height: 10px; }
+html.tv input[type=range].slider::-webkit-slider-thumb { opacity: 1; width: 24px; height: 24px; }
+html.tv input[type=range].slider:focus-visible { box-shadow: 0 0 0 6px rgba(167, 139, 250, .85); transform: none; }

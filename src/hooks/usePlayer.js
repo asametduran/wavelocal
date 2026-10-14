@@ -243,25 +243,64 @@ export function usePlayer() {
     audio.muted = muted
   }, [audio, volume, muted])
 
-  // OS-level media keys / lock screen controls
+  // Media Session: lock screen, notification shade, car/TV remote media keys, background playback
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
     const ms = navigator.mediaSession
     if (!current) {
       ms.metadata = null
+      ms.playbackState = 'none'
       return
     }
-    ms.metadata = new MediaMetadata({
-      title: current.title,
-      artist: current.artist,
-      album: current.album,
-      artwork: current.cover ? [{ src: current.cover }] : [],
+    const base = import.meta.env.BASE_URL
+    const fallback = [
+      { src: `${base}icons/icon-512.png`, sizes: '512x512', type: 'image/png' },
+      { src: `${base}icons/icon-192.png`, sizes: '192x192', type: 'image/png' },
+    ]
+    try {
+      ms.metadata = new MediaMetadata({
+        title: current.title,
+        artist: current.artist,
+        album: current.album || 'Wavelocal',
+        artwork: current.cover ? [{ src: current.cover, sizes: '512x512' }, ...fallback] : fallback,
+      })
+    } catch {
+      /* unsupported artwork */
+    }
+  }, [current])
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return
+    const ms = navigator.mediaSession
+    const set = (action, fn) => {
+      try {
+        ms.setActionHandler(action, fn)
+      } catch {
+        /* action unsupported on this platform */
+      }
+    }
+    set('play', () => audio.play().catch(() => {}))
+    set('pause', () => audio.pause())
+    set('stop', () => audio.pause())
+    set('previoustrack', prev)
+    set('nexttrack', () => next(false))
+    set('seekbackward', (d) => seekBy(-(d?.seekOffset || 10)))
+    set('seekforward', (d) => seekBy(d?.seekOffset || 10))
+    set('seekto', (d) => {
+      if (d?.seekTime != null) seek(d.seekTime)
     })
-    ms.setActionHandler('play', toggle)
-    ms.setActionHandler('pause', toggle)
-    ms.setActionHandler('previoustrack', prev)
-    ms.setActionHandler('nexttrack', () => next(false))
-  }, [current, toggle, prev, next])
+  }, [audio, prev, next, seek, seekBy])
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !currentId) return
+    navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'
+    try {
+      if (Number.isFinite(duration) && duration > 0)
+        navigator.mediaSession.setPositionState({ duration, playbackRate: audio.playbackRate || 1, position: Math.min(audio.currentTime, duration) })
+    } catch {
+      /* ignore invalid state */
+    }
+  }, [audio, currentId, playing, duration])
 
   return {
     tracks, current, currentId, playing, time, duration, volume, muted, repeat, shuffle, loading,

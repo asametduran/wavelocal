@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-export default defineConfig({ plugins: [react()] })
+// base './' keeps the build portable (static hosts, sub-paths, file shares) and the PWA scope relative.
+export default defineConfig({ base: './', plugins: [react()] })

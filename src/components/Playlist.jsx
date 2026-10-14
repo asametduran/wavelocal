@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { FolderOpen, GripVertical, Plus, Search, Trash2, X } from 'lucide-react'
+import { FolderOpen, GripVertical, Plus, Search, Trash2, Tv, X } from 'lucide-react'
 import Cover from './Cover'
 import { formatTime } from '../lib/format'
 
@@ -13,7 +13,7 @@ function Bars() {
   )
 }
 
-export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, className = '' }) {
+export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, onToggleTv, className = '' }) {
   const [query, setQuery] = useState('')
   const [dragFrom, setDragFrom] = useState(null)
   const [dragOver, setDragOver] = useState(null)
@@ -28,7 +28,7 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, clas
   )
 
   return (
-    <aside className={`flex min-h-0 flex-col border-white/5 bg-panel md:w-80 md:border-r lg:w-96 ${className}`}>
+    <aside className={`flex min-h-0 w-full flex-col border-white/5 bg-panel md:w-80 md:border-r lg:w-96 ${className}`}>
       <div className="flex items-center justify-between px-4 pb-2 pt-4">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">
           Queue <span className="ml-1 text-zinc-600">{p.tracks.length}</span>
@@ -40,6 +40,11 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, clas
           <button onClick={onPickFolder} className="grid h-8 w-8 place-items-center rounded-full text-zinc-400 hover:bg-white/10 hover:text-white" aria-label="Add folder" title="Add folder">
             <FolderOpen size={17} />
           </button>
+          {onToggleTv && (
+            <button onClick={onToggleTv} aria-pressed={!!tv} className={`hidden h-8 w-8 place-items-center rounded-full hover:bg-white/10 md:grid ${tv ? 'text-accent' : 'text-zinc-400 hover:text-white'}`} aria-label="TV mode (T)" title="TV mode (T)">
+              <Tv size={16} />
+            </button>
+          )}
           <button onClick={p.clear} disabled={!p.tracks.length} className="grid h-8 w-8 place-items-center rounded-full text-zinc-400 hover:bg-white/10 hover:text-red-400 disabled:opacity-30" aria-label="Clear queue" title="Clear queue">
             <Trash2 size={16} />
           </button>
@@ -103,14 +108,22 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, clas
                 </div>
               </button>
               <span className="shrink-0 text-xs tabular-nums text-zinc-600">{t.duration ? formatTime(t.duration) : ''}</span>
-              <button onClick={() => p.remove(t.id)} className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-zinc-600 opacity-0 transition hover:bg-white/10 hover:text-red-400 focus-visible:opacity-100 group-hover:opacity-100" aria-label={`Remove ${t.title}`}>
+              <button onClick={() => p.remove(t.id)} className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-zinc-600 opacity-0 transition hover:bg-white/10 hover:text-red-400 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100" aria-label={`Remove ${t.title}`}>
                 <X size={14} />
               </button>
             </li>
           )
         })}
         {!rows.length && (
-          <li className="px-4 py-10 text-center text-sm text-zinc-600">{p.tracks.length ? 'No tracks match your search.' : 'Queue is empty.'}</li>
+          <li className="flex flex-col items-center gap-4 px-4 py-10 text-center text-sm text-zinc-500">
+            {p.tracks.length ? 'No tracks match your search.' : 'Your queue is empty. Add some music — it stays on your device.'}
+            {!p.tracks.length && (
+              <div className="flex gap-2">
+                <button onClick={onPickFiles} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black">Add files</button>
+                <button onClick={onPickFolder} className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white">Add folder</button>
+              </div>
+            )}
+          </li>
         )}
       </ul>
     </aside>

@@ -1,23 +1,15 @@
-import { FolderOpen, Headphones, ListMusic, Upload } from 'lucide-react'
+import { FolderOpen, Headphones, Upload } from 'lucide-react'
 import Cover from './Cover'
 
-export default function NowPlaying({ p, onPickFiles, onPickFolder, onToggleList }) {
+export default function NowPlaying({ p, onPickFiles, onPickFolder }) {
   const { current, playing } = p
 
   return (
-    <section className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-6 py-6">
+    <section className="relative hidden min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-6 py-6 md:flex">
       {current?.cover && (
         <img src={current.cover} alt="" className="pointer-events-none absolute inset-0 h-full w-full scale-125 object-cover opacity-25 blur-3xl" />
       )}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-base/40 to-base" />
-
-      <button
-        onClick={onToggleList}
-        className="absolute right-4 top-4 z-10 grid h-10 w-10 place-items-center rounded-full bg-white/5 text-zinc-300 hover:bg-white/10 md:hidden"
-        aria-label="Toggle playlist"
-      >
-        <ListMusic size={20} />
-      </button>
 
       {current ? (
         <div key={current.id} className="relative z-10 flex w-full max-w-md animate-fadeIn flex-col items-center text-center">

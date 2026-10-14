@@ -20,7 +20,23 @@ A modern dark-mode music player that runs entirely in your browser. Your files a
 - **OS integration** — Media Session API (media keys, lock-screen controls)
 - **Responsive** — sidebar on desktop, slide-over queue on mobile
 
+## Runs everywhere
+
+| Platform | Experience |
+| --- | --- |
+| **Phone** (iOS / Android) | Thumb-sized mini player, full-screen Now Playing (swipe down to minimize, swipe artwork for prev/next), bottom-sheet queue, safe-area padding, installable PWA |
+| **Tablet / iPad** | Two-column split: queue + now playing, full transport bar |
+| **Desktop** | Sidebar queue, centre stage, persistent controls, keyboard shortcuts |
+| **Smart TV / big screen** | 10-foot UI: 1.5x scale, high contrast, thick focus rings, D-pad (arrow keys + Enter) navigation, remote media keys and Back |
+
+- **PWA / offline** — web app manifest + service worker cache the app shell; install from the browser menu ("Add to Home Screen" / "Install"). Your audio is never cached or uploaded.
+- **Media Session** — track title, artist and artwork on lock screens and notification shades; media keys, seek and background playback.
+- **TV mode** — auto-enabled on Tizen / webOS / Android TV / Fire TV / console user agents. Force it with `?tv=1` (or `?tv=0`), or press `T`.
+
 ## Keyboard shortcuts
+
+In TV mode arrow keys move focus (D-pad) instead of seeking; use the focused seek/volume slider with Left/Right, or the remote's media keys.
+
 
 | Key | Action |
 | --- | --- |
