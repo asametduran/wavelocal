@@ -4,3 +4,7 @@ dist
 *.log
 .env*
 graphify-out
+evolution.log
+evolution-last-run.txt
+evolution-last-run.err
+STOP
