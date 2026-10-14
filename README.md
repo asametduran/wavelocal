@@ -20,6 +20,16 @@ A modern dark-mode music player that runs entirely in your browser. Your files a
 - **OS integration** — Media Session API (media keys, lock-screen controls)
 - **Responsive** — sidebar on desktop, slide-over queue on mobile
 
+## Audiophile toolkit
+
+- **DSP engine** — Web Audio graph: two playback decks → 10-band equalizer (31 Hz–16 kHz, ±12 dB) → analyser → master fade. Presets: Flat, Bass Boost, Vocal, Rock, Acoustic, Electronic, Treble Boost. Press `E` for the Sound & tools panel.
+- **Visualizer** — live canvas spectrum bars or waveform on the Now Playing screen (click to switch).
+- **Synced lyrics** — drop `Song.lrc` next to `Song.mp3` (matched by file name) or load one from the Lyrics tab; embedded ID3 lyrics are used too. Karaoke-style auto-scroll, tap a line to seek.
+- **Offline library** — imported tracks, playlists, queue order, lyrics, settings and your last position are stored in IndexedDB, so a refresh or app restart keeps your music. Nothing leaves the device.
+- **Playlists** — create from any track's `+` menu; reorder by drag; the library is separate from playlists.
+- **Sleep timer** — 15 / 30 / 45 / 60 min with a smooth 12-second fade-out.
+- **Gapless & crossfade** — preloads the next track; crossfade blends over ~5 s.
+
 ## Runs everywhere
 
 | Platform | Experience |
@@ -64,10 +74,15 @@ src/
 ├── main.jsx              entry point
 ├── App.jsx               layout, window-wide drag & drop, file/folder inputs
 ├── hooks/
-│   ├── usePlayer.js      owns the <audio> element + queue/playback state, Media Session
-│   └── useHotkeys.js     global keyboard shortcuts
+│   ├── usePlayer.js      queue, playlists, persistence, sleep timer, crossfade, Media Session
+│   ├── useHotkeys.js     global keyboard / remote shortcuts
+│   ├── useTvMode.js      10-foot UI + D-pad focus navigation
+│   └── useSwipe.js       touch gestures
 ├── lib/
-│   ├── metadata.js       File → track (ID3 tags, cover art Blob URLs)
+│   ├── engine.js         Web Audio graph: decks, 10-band EQ, analyser, fades
+│   ├── lrc.js            LRC parser + active-line lookup
+│   ├── db.js             IndexedDB wrapper (tracks + meta)
+│   ├── metadata.js       File → track (ID3 tags, cover art, lyrics pairing)
 │   └── format.js         time formatting, procedural fallback artwork
 └── components/
     ├── Playlist.jsx      queue sidebar, search, drag-to-reorder

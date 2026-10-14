@@ -1,11 +1,16 @@
-import { ChevronDown, ListMusic } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronDown, ListMusic, SlidersHorizontal } from 'lucide-react'
 import Cover from './Cover'
+import Lyrics from './Lyrics'
+import Visualizer from './Visualizer'
+import { StageTabs } from './NowPlaying'
 import { Transport } from './PlayerBar'
 import { useSwipe } from '../hooks/useSwipe'
 
 /** Full-screen Now Playing for phones. Drag down to minimize; swipe the artwork for prev/next. */
-export default function NowPlayingSheet({ p, open, onClose, onOpenQueue }) {
+export default function NowPlayingSheet({ p, open, onClose, onOpenQueue, onOpenTools }) {
   const { current, playing } = p
+  const [tab, setTab] = useState('art')
   const sheet = useSwipe({ onDown: onClose, trackDown: true, threshold: 110 })
   const art = useSwipe({ onLeft: p.next, onRight: p.prev, threshold: 60 })
 
@@ -28,28 +33,44 @@ export default function NowPlayingSheet({ p, open, onClose, onOpenQueue }) {
       )}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-base/20 via-base/60 to-base" />
 
-      <header className="relative flex items-center justify-between px-4 py-3">
+      <header className="relative flex items-center justify-between px-3 py-2">
         <button onClick={onClose} className="grid h-11 w-11 place-items-center rounded-full text-zinc-300 active:bg-white/10" aria-label="Minimize player">
           <ChevronDown size={28} />
         </button>
-        <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">Now playing</span>
-        <button onClick={onOpenQueue} className="grid h-11 w-11 place-items-center rounded-full text-zinc-300 active:bg-white/10" aria-label="Open queue">
-          <ListMusic size={22} />
-        </button>
+        <StageTabs tab={tab} setTab={setTab} hasLyrics={!!current?.lyrics} />
+        <div className="flex">
+          <button onClick={onOpenTools} className="grid h-11 w-11 place-items-center rounded-full text-zinc-300 active:bg-white/10" aria-label="Equalizer and tools">
+            <SlidersHorizontal size={20} />
+          </button>
+          <button onClick={onOpenQueue} className="grid h-11 w-11 place-items-center rounded-full text-zinc-300 active:bg-white/10" aria-label="Open queue">
+            <ListMusic size={22} />
+          </button>
+        </div>
       </header>
 
-      <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center px-8" {...art.handlers}>
-        <div
-          key={current?.id}
-          className={`aspect-square w-full max-w-[min(100%,42dvh)] animate-fadeIn overflow-hidden rounded-2xl shadow-2xl shadow-black/60 ring-1 ring-white/10 transition-transform duration-500 ${playing ? 'scale-100' : 'scale-90'}`}
-        >
-          <Cover track={current} className="h-full w-full" iconSize={72} />
+      {tab === 'art' ? (
+        <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center px-8" {...art.handlers}>
+          <div
+            key={current?.id}
+            className={`aspect-square w-full max-w-[min(100%,36dvh)] animate-fadeIn overflow-hidden rounded-2xl shadow-2xl shadow-black/60 ring-1 ring-white/10 transition-transform duration-500 ${playing ? 'scale-100' : 'scale-90'}`}
+          >
+            <Cover track={current} className="h-full w-full" iconSize={72} />
+          </div>
+          <div className="mt-5 w-full text-center">
+            <h2 className="line-clamp-2 text-2xl font-bold tracking-tight">{current?.title ?? 'Nothing playing'}</h2>
+            <p className="mt-1 truncate text-base text-zinc-300">{current?.artist}</p>
+          </div>
+          <Visualizer engine={p.engine} playing={playing} className="mt-4 h-12" />
         </div>
-        <div className="mt-6 w-full text-center">
-          <h2 className="line-clamp-2 text-2xl font-bold tracking-tight">{current?.title ?? 'Nothing playing'}</h2>
-          <p className="mt-1 truncate text-base text-zinc-300">{current?.artist}</p>
+      ) : (
+        <div className="relative flex min-h-0 flex-1 flex-col px-2">
+          <div className="mb-1 text-center">
+            <div className="truncate text-sm font-semibold">{current?.title}</div>
+            <div className="truncate text-xs text-zinc-400">{current?.artist}</div>
+          </div>
+          <Lyrics track={current} time={p.time} onSeek={p.seek} onLoad={p.attachLrc} className="min-h-0 flex-1" />
         </div>
-      </div>
+      )}
 
       <div className="relative px-5 pb-6 pt-2">
         <Transport p={p} big />

@@ -1,4 +1,4 @@
-import { Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from 'lucide-react'
+import { Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, SlidersHorizontal, Volume1, Volume2, VolumeX } from 'lucide-react'
 import Cover from './Cover'
 import Slider from './Slider'
 import { formatTime } from '../lib/format'
@@ -87,8 +87,8 @@ export function MiniBar({ p, onOpen }) {
 }
 
 /** Tablet / desktop / TV footer. */
-export default function PlayerBar({ p }) {
-  const { current, volume, muted } = p
+export default function PlayerBar({ p, onOpenTools }) {
+  const { current, volume, muted, sleepLeft } = p
   const effective = muted ? 0 : volume
   const VolIcon = effective === 0 ? VolumeX : effective < 0.5 ? Volume1 : Volume2
 
@@ -105,6 +105,10 @@ export default function PlayerBar({ p }) {
       <Transport p={p} />
 
       <div className="flex items-center justify-end gap-2">
+        <button className={`${iconBtn} !w-auto gap-1 px-2 ${sleepLeft !== null ? '!text-accent' : ''}`} onClick={onOpenTools} aria-label="Equalizer, sleep timer and transitions (E)" title="Equalizer, sleep timer, transitions (E)">
+          <SlidersHorizontal size={19} />
+          {sleepLeft !== null && <span className="text-xs tabular-nums">{Math.floor(sleepLeft / 60)}:{String(sleepLeft % 60).padStart(2, '0')}</span>}
+        </button>
         <button className={iconBtn} onClick={p.toggleMute} aria-label={muted ? 'Unmute (M)' : 'Mute (M)'} title={muted ? 'Unmute (M)' : 'Mute (M)'}>
           <VolIcon size={20} />
         </button>

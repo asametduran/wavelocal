@@ -33,6 +33,9 @@ input[type=range].slider::-webkit-slider-thumb {
 }
 input[type=range].slider:hover::-webkit-slider-thumb, input[type=range].slider:focus-visible::-webkit-slider-thumb { opacity: 1; }
 input[type=range].slider::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: #fff; }
+/* sliders that should always show their thumb (EQ bands) */
+input[type=range].slider.always::-webkit-slider-thumb { opacity: 1; width: 14px; height: 14px; }
+input[type=range].slider.always::-moz-range-thumb { width: 14px; height: 14px; }
 /* always show the thumb on touch screens */
 @media (hover: none) {
   input[type=range].slider { height: 6px; }

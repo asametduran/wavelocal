@@ -8,7 +8,7 @@ const BACK_CODES = new Set([10009, 461]) // Tizen / webOS remotes
  * letter / arrow shortcuts are ignored while typing. In TV mode arrows are left to
  * the D-pad navigator instead of seeking.
  */
-export function useHotkeys(p, { focusSearch, onBack, tv, toggleTv } = {}) {
+export function useHotkeys(p, { focusSearch, onBack, tv, toggleTv, openTools } = {}) {
   useEffect(() => {
     const onKey = (e) => {
       const k = e.key
@@ -56,6 +56,7 @@ export function useHotkeys(p, { focusSearch, onBack, tv, toggleTv } = {}) {
         p: () => p.prev(),
         '/': () => focusSearch?.(),
         t: () => toggleTv?.(),
+        e: () => openTools?.(),
       }
       const fn = actions[k.length === 1 ? k.toLowerCase() : k]
       if (!fn) return

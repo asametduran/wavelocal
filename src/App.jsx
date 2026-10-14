@@ -7,6 +7,7 @@ import Playlist from './components/Playlist'
 import NowPlaying from './components/NowPlaying'
 import NowPlayingSheet from './components/NowPlayingSheet'
 import QueueSheet from './components/QueueSheet'
+import ToolsModal from './components/ToolsModal'
 import PlayerBar, { MiniBar } from './components/PlayerBar'
 
 export default function App() {
@@ -18,32 +19,36 @@ export default function App() {
   const [dragging, setDragging] = useState(false)
   const [nowOpen, setNowOpen] = useState(false)
   const [queueOpen, setQueueOpen] = useState(false)
+  const [toolsOpen, setToolsOpen] = useState(false)
 
   // Back button / remote Back / Escape: close the topmost sheet first.
   const onBack = useCallback(() => {
+    if (toolsOpen) return setToolsOpen(false) || true
     if (queueOpen) return setQueueOpen(false) || true
     if (nowOpen) return setNowOpen(false) || true
     return false
-  }, [queueOpen, nowOpen])
+  }, [toolsOpen, queueOpen, nowOpen])
 
   useHotkeys(p, {
     tv,
     onBack,
     toggleTv: () => setTv((v) => !v),
+    openTools: () => setToolsOpen((v) => !v),
     focusSearch: () => searchRef.current?.focus(),
   })
 
   // Hardware / browser back closes sheets instead of leaving the app.
   useEffect(() => {
-    if (!nowOpen && !queueOpen) return
+    if (!nowOpen && !queueOpen && !toolsOpen) return
     history.pushState({ sheet: true }, '')
     const onPop = () => {
+      setToolsOpen(false)
       setQueueOpen(false)
       setNowOpen(false)
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
-  }, [nowOpen, queueOpen])
+  }, [nowOpen, queueOpen, toolsOpen])
 
   useEffect(() => {
     document.title = p.current ? `${p.current.title} — ${p.current.artist}` : 'Wavelocal — Private Music Player'
@@ -97,7 +102,7 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col pt-safe">
-      <input ref={fileInput} type="file" accept="audio/*,.mp3,.m4a,.flac,.ogg,.wav" multiple hidden onChange={onInput} />
+      <input ref={fileInput} type="file" accept="audio/*,.mp3,.m4a,.flac,.ogg,.wav,.lrc" multiple hidden onChange={onInput} />
       <input ref={folderInput} type="file" webkitdirectory="" directory="" multiple hidden onChange={onInput} />
 
       <div className="flex min-h-0 flex-1">
@@ -114,10 +119,17 @@ export default function App() {
       </div>
 
       <MiniBar p={p} onOpen={() => setNowOpen(true)} />
-      <PlayerBar p={p} />
+      <PlayerBar p={p} onOpenTools={() => setToolsOpen(true)} />
 
-      <NowPlayingSheet p={p} open={nowOpen} onClose={() => setNowOpen(false)} onOpenQueue={() => setQueueOpen(true)} />
+      <NowPlayingSheet p={p} open={nowOpen} onClose={() => setNowOpen(false)} onOpenQueue={() => setQueueOpen(true)} onOpenTools={() => setToolsOpen(true)} />
       <QueueSheet p={p} open={queueOpen} onClose={() => setQueueOpen(false)} onPickFiles={pickFiles} onPickFolder={pickFolder} />
+      <ToolsModal p={p} open={toolsOpen} onClose={() => setToolsOpen(false)} />
+
+      {p.notice && (
+        <div className="fixed inset-x-0 bottom-24 z-[70] mx-auto w-fit max-w-[90vw] animate-fadeIn rounded-full bg-raised px-5 py-2.5 text-sm shadow-lg ring-1 ring-white/10" role="status">
+          {p.notice}
+        </div>
+      )}
 
       {p.loading && (
         <div className="fixed right-4 top-4 z-[60] flex items-center gap-2 rounded-full bg-raised px-4 py-2 text-sm shadow-lg" role="status">

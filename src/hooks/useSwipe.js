@@ -10,7 +10,8 @@ export function useSwipe({ onLeft, onRight, onUp, onDown, threshold = 70, trackD
 
   const handlers = {
     onTouchStart: (e) => {
-      if (e.target instanceof HTMLInputElement && e.target.type === 'range') {
+      const t0 = e.target
+      if ((t0 instanceof HTMLInputElement && t0.type === 'range') || (t0 instanceof Element && t0.closest('[data-noswipe]'))) {
         start.current = null
         return
       }

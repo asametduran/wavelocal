@@ -1,0 +1,117 @@
+import { Moon, Shuffle as Blend, SlidersHorizontal, X } from 'lucide-react'
+import { EQ_LABELS, EQ_MAX_DB, EQ_PRESETS } from '../lib/engine'
+
+const TIMERS = [15, 30, 45, 60]
+const MODES = [
+  ['off', 'Off', 'Tracks play one after another.'],
+  ['gapless', 'Gapless', 'The next track starts the instant this one ends.'],
+  ['crossfade', 'Crossfade', 'Tracks blend into each other over ~5 seconds.'],
+]
+const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+const same = (a, b) => a.every((v, i) => v === b[i])
+
+const chip = (on) =>
+  `rounded-full px-4 py-2 text-sm font-semibold transition ${on ? 'bg-accent text-black' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
+
+/** Equalizer, sleep timer and transition settings. Bottom sheet on phones, centered dialog elsewhere. */
+export default function ToolsModal({ p, open, onClose }) {
+  if (!open) return null
+  const activePreset = Object.keys(EQ_PRESETS).find((k) => same(EQ_PRESETS[k], p.eq))
+  const mode = MODES.find((m) => m[0] === p.transition) || MODES[0]
+
+  return (
+    <div data-modal="true" role="dialog" aria-modal="true" aria-label="Sound and tools" className="fixed inset-0 z-[55] flex items-end justify-center md:items-center">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
+      <div className="relative max-h-[92dvh] w-full animate-fadeIn overflow-y-auto rounded-t-3xl bg-panel p-5 pb-safe shadow-2xl md:max-w-2xl md:rounded-3xl md:p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-lg font-bold">
+            <SlidersHorizontal size={20} className="text-accent" /> Sound &amp; tools
+          </h2>
+          <button onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full text-zinc-400 hover:bg-white/10 hover:text-white" aria-label="Close">
+            <X size={20} />
+          </button>
+        </div>
+
+        <section aria-label="Equalizer">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Equalizer</h3>
+            <button
+              role="switch"
+              aria-checked={p.eqOn}
+              onClick={() => p.setEqOn(!p.eqOn)}
+              className={`relative h-7 w-12 rounded-full transition ${p.eqOn ? 'bg-accent' : 'bg-white/15'}`}
+              aria-label="Enable equalizer"
+            >
+              <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${p.eqOn ? 'left-6' : 'left-1'}`} />
+            </button>
+          </div>
+          <div className="mb-4 flex flex-wrap gap-2">
+            {Object.keys(EQ_PRESETS).map((name) => (
+              <button key={name} onClick={() => p.applyPreset(name)} className={chip(activePreset === name)} aria-pressed={activePreset === name}>
+                {name}
+              </button>
+            ))}
+          </div>
+          <div className={`flex justify-between gap-1 rounded-2xl bg-base/60 px-2 py-4 transition-opacity ${p.eqOn ? '' : 'opacity-40'}`}>
+            {EQ_LABELS.map((label, i) => (
+              <div key={label} className="flex flex-col items-center gap-2">
+                <span className="w-9 text-center text-[11px] tabular-nums text-zinc-400">{p.eq[i] > 0 ? '+' : ''}{p.eq[i]}</span>
+                <div className="relative h-36 w-9">
+                  <input
+                    type="range"
+                    min={-EQ_MAX_DB}
+                    max={EQ_MAX_DB}
+                    step={0.5}
+                    value={p.eq[i]}
+                    onChange={(e) => p.setEqBand(i, parseFloat(e.target.value))}
+                    onDoubleClick={() => p.setEqBand(i, 0)}
+                    aria-label={`${label} Hz gain`}
+                    className="slider always absolute left-1/2 top-1/2 w-36 -translate-x-1/2 -translate-y-1/2 -rotate-90"
+                    style={{ '--p': `${((p.eq[i] + EQ_MAX_DB) / (EQ_MAX_DB * 2)) * 100}%` }}
+                  />
+                </div>
+                <span className="text-[11px] text-zinc-500">{label}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-zinc-500">Double-click a band to reset it. Values are in dB.</p>
+        </section>
+
+        <section aria-label="Sleep timer" className="mt-6">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
+            <Moon size={15} /> Sleep timer
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {TIMERS.map((m) => (
+              <button key={m} onClick={() => p.setSleep(m)} className={chip(false)}>
+                {m} min
+              </button>
+            ))}
+            <button onClick={() => p.setSleep(null)} disabled={p.sleepLeft === null} className={`${chip(false)} disabled:opacity-40`}>
+              Off
+            </button>
+          </div>
+          {p.sleepLeft !== null && (
+            <p className="mt-2 text-sm text-accent" role="status">
+              Stopping in {fmt(p.sleepLeft)} — volume fades out over the final 12 seconds.
+            </p>
+          )}
+        </section>
+
+        <section aria-label="Track transitions" className="mt-6">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
+            <Blend size={15} /> Transitions
+          </h3>
+          <div className="flex flex-wrap gap-2" role="radiogroup">
+            {MODES.map(([id, label]) => (
+              <button key={id} role="radio" aria-checked={p.transition === id} onClick={() => p.setTransition(id)} className={chip(p.transition === id)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-zinc-500">{mode[2]}</p>
+        </section>
+      </div>
+    </div>
+  )
+}
