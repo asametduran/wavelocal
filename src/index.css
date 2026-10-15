@@ -43,6 +43,33 @@ input[type=range].slider.always::-moz-range-thumb { width: 14px; height: 14px; }
   input[type=range].slider::-moz-range-thumb { width: 16px; height: 16px; }
 }
 
+/* ---- Reduced motion: set by the OS preference or the in-app Motion setting (lib/motion.ts toggles the class) ---- */
+html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+html.reduce-motion .hover\:scale-105:hover, html.reduce-motion .active\:scale-95:active { transform: none; }
+
+/* ---- Increased contrast: the secondary greys become near-white and borders show ---- */
+@media (prefers-contrast: more) {
+  .text-zinc-500, .text-zinc-400 { color: #e4e4e7; }
+  .border-white\/5, .ring-white\/10 { --tw-ring-color: rgba(255, 255, 255, .5); border-color: rgba(255, 255, 255, .5); }
+  input[type=range].slider { background: linear-gradient(to right, #fff var(--p, 0%), #6b6b80 var(--p, 0%)); }
+}
+
+/* ---- Windows High Contrast / forced colors: system colors only, state never relies on a fill ---- */
+@media (forced-colors: active) {
+  :focus-visible { outline: 3px solid Highlight; outline-offset: 2px; }
+  button, [role=tab], [role=radio], [role=switch] { border: 1px solid ButtonText; }
+  [aria-pressed=true], [aria-checked=true], [aria-selected=true], [aria-current=true] { outline: 2px solid Highlight; outline-offset: -2px; }
+  input[type=range].slider { forced-color-adjust: none; background: ButtonText; height: 4px; }
+  input[type=range].slider::-webkit-slider-thumb { background: Highlight; opacity: 1; width: 16px; height: 16px; }
+  input[type=range].slider::-moz-range-thumb { background: Highlight; width: 16px; height: 16px; }
+}
+
 /* ---- 10-foot UI (Smart TV / big screens): 1.5x scale, high contrast, thick focus ---- */
 html.tv { font-size: 24px; }
 html.tv body { background: #000; }

@@ -3,6 +3,7 @@ import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Download, ImagePlus, Loader2, Trash2, Undo2, X } from 'lucide-react'
 import Cover from './Cover'
+import { useDialog } from '../hooks/useA11y'
 import { MAX_FIELD_LENGTH, cleanField, readCover } from '../lib/tags'
 import type { PlayerApi, Track } from '../types'
 
@@ -45,13 +46,9 @@ export default function TagEditor({ p, track, onClose }: TagEditorProps) {
   const filePicker = useRef<HTMLInputElement>(null)
   const previewUrl = cover.kind === 'replace' ? cover.preview : null
 
-  useEffect(() => {
-    const opener = document.activeElement
-    titleInput.current?.select()
-    return () => {
-      if (opener instanceof HTMLElement && opener.isConnected) opener.focus()
-    }
-  }, [])
+  // focus goes to the title (selected), Tab stays inside, and focus returns to the row's pencil button on close
+  useDialog(dialog, true, { initialFocus: '[data-autofocus]' })
+  useEffect(() => titleInput.current?.select(), [])
 
   // never leak the preview object URL
   useEffect(() => {
@@ -93,26 +90,12 @@ export default function TagEditor({ p, track, onClose }: TagEditorProps) {
     onClose()
   }
 
-  // Esc closes (and is not passed on to the sheets behind); Tab stays inside the dialog.
+  // Esc closes (and is not passed on to the sheets behind)
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      e.stopPropagation()
-      onClose()
-      return
-    }
-    if (e.key !== 'Tab' || !dialog.current) return
-    const items = Array.from(dialog.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]):not([type="file"])'))
-    const first = items[0]
-    const last = items[items.length - 1]
-    if (!first || !last) return
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault()
-      last.focus()
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault()
-      first.focus()
-    }
+    if (e.key !== 'Escape') return
+    e.preventDefault()
+    e.stopPropagation()
+    onClose()
   }
 
   // portalled so no transformed ancestor (sheets, panels) can confine the fixed overlay
@@ -148,7 +131,7 @@ export default function TagEditor({ p, track, onClose }: TagEditorProps) {
 
           <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
             Title
-            <input ref={titleInput} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={MAX_FIELD_LENGTH} className={`mt-1 ${field} normal-case tracking-normal text-white`} />
+            <input ref={titleInput} data-autofocus value={title} onChange={(e) => setTitle(e.target.value)} maxLength={MAX_FIELD_LENGTH} className={`mt-1 ${field} normal-case tracking-normal text-white`} />
           </label>
           <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
             Artist
@@ -159,7 +142,7 @@ export default function TagEditor({ p, track, onClose }: TagEditorProps) {
             <input value={album} onChange={(e) => setAlbum(e.target.value)} maxLength={MAX_FIELD_LENGTH} className={`mt-1 ${field} normal-case tracking-normal text-white`} />
           </label>
 
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-zinc-400">
             Changes are saved to your offline library. MP3 files also get the tags written into the stored copy; your original file on disk is never modified.
           </p>
 
@@ -177,7 +160,7 @@ export default function TagEditor({ p, track, onClose }: TagEditorProps) {
               <button type="button" onClick={onClose} className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/15">
                 Cancel
               </button>
-              <button type="submit" disabled={!dirty || busy} className="inline-flex items-center gap-2 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-black disabled:opacity-40">
+              <button type="submit" disabled={!dirty || busy} className="inline-flex items-center gap-2 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-on-accent disabled:opacity-40">
                 {busy && <Loader2 size={14} className="animate-spin" />} Save
               </button>
             </div>

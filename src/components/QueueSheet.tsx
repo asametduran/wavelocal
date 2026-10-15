@@ -1,6 +1,8 @@
+import { useRef } from 'react'
 import { X } from 'lucide-react'
 import Playlist from './Playlist'
 import { useSwipe } from '../hooks/useSwipe'
+import { useDialog } from '../hooks/useA11y'
 import type { PlayerApi } from '../types'
 
 /** Phone bottom-sheet queue. Drag the handle down (or tap the backdrop) to dismiss. */
@@ -14,6 +16,8 @@ interface QueueSheetProps {
 
 export default function QueueSheet({ p, open, onClose, onPickFiles, onPickFolder }: QueueSheetProps) {
   const swipe = useSwipe({ onDown: onClose, trackDown: true, threshold: 100 })
+  const dialog = useRef<HTMLDivElement>(null)
+  useDialog(dialog, open)
 
   return (
     <div className="md:hidden">
@@ -23,10 +27,12 @@ export default function QueueSheet({ p, open, onClose, onPickFiles, onPickFolder
         className={`fixed inset-0 z-[45] bg-black/60 transition-opacity duration-300 ${open ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
       />
       <div
+        ref={dialog}
         inert={!open}
         data-modal={open}
         aria-hidden={!open}
         role="dialog"
+        aria-modal="true"
         aria-label="Queue"
         className="fixed inset-x-0 bottom-0 z-50 flex h-[78dvh] flex-col overflow-hidden rounded-t-2xl bg-panel pb-safe shadow-2xl"
         style={{
@@ -41,7 +47,7 @@ export default function QueueSheet({ p, open, onClose, onPickFiles, onPickFolder
             <X size={20} />
           </button>
         </div>
-        <Playlist p={p} onPickFiles={onPickFiles} onPickFolder={onPickFolder} className="min-h-0 flex-1 !border-0" />
+        <Playlist p={p} label="Queue" onPickFiles={onPickFiles} onPickFolder={onPickFolder} className="min-h-0 flex-1 !border-0" />
       </div>
     </div>
   )

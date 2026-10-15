@@ -2,6 +2,7 @@ import { Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, SlidersHo
 import Cover from './Cover'
 import Slider from './Slider'
 import { formatTime } from '../lib/format'
+import { spokenPercent, spokenProgress } from '../lib/a11y'
 import { useSwipe } from '../hooks/useSwipe'
 import type { PlayerApi } from '../types'
 
@@ -19,9 +20,9 @@ export function Transport({ p, big = false }: { p: PlayerApi; big?: boolean }) {
   return (
     <div className={`flex w-full items-center gap-1 ${big ? 'flex-col' : 'flex-col-reverse'}`}>
       <div className={`flex w-full items-center gap-3 tabular-nums text-zinc-400 ${big ? 'mb-3 text-xs' : 'max-w-2xl text-[11px]'}`}>
-        <span className="w-10 text-right">{formatTime(time)}</span>
-        <Slider value={time} max={duration} step={0.1} onChange={p.seek} label="Seek" />
-        <span className="w-10">{formatTime(duration)}</span>
+        <span className="w-10 text-right" aria-hidden="true">{formatTime(time)}</span>
+        <Slider value={time} max={duration} step={0.1} onChange={p.seek} label="Seek" valueText={spokenProgress(time, duration)} />
+        <span className="w-10" aria-hidden="true">{formatTime(duration)}</span>
       </div>
       <div className={`flex items-center ${big ? 'w-full justify-between' : 'gap-1 sm:gap-2'}`}>
         <button className={`${iconBtn} ${btn} ${shuffle ? '!text-accent' : ''}`} onClick={p.toggleShuffle} aria-pressed={shuffle} aria-label="Shuffle (S)" title="Shuffle (S)">
@@ -64,17 +65,18 @@ export function MiniBar({ p, onOpen }: { p: PlayerApi; onOpen: () => void }) {
   const pct = duration > 0 ? Math.min(100, (time / duration) * 100) : 0
 
   return (
-    <div className="border-t border-white/5 bg-panel pb-safe md:hidden" {...handlers}>
+    <section id="player-mini" aria-label="Player controls" className="border-t border-white/5 bg-panel pb-safe md:hidden" {...handlers}>
       <div className="h-0.5 bg-white/10">
         <div className="h-full bg-accent" style={{ width: `${pct}%` }} />
       </div>
       <div className="flex items-center gap-2 px-3 py-2">
-        <button onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left" aria-label="Open now playing">
+        <button onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left">
           <Cover track={current} className="h-12 w-12 shrink-0 rounded-md" iconSize={18} />
           <div className="min-w-0">
             <div className="truncate text-sm font-medium">{current.title}</div>
             <div className="truncate text-xs text-zinc-400">{current.artist}</div>
           </div>
+          <span className="sr-only">Open now playing</span>
         </button>
         <button onClick={p.toggle} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-black active:scale-95" aria-label={playing ? 'Pause' : 'Play'}>
           {playing ? <Pause size={22} fill="currentColor" /> : <Play size={22} fill="currentColor" className="translate-x-px" />}
@@ -83,7 +85,7 @@ export function MiniBar({ p, onOpen }: { p: PlayerApi; onOpen: () => void }) {
           <SkipForward size={22} fill="currentColor" />
         </button>
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -94,7 +96,7 @@ export default function PlayerBar({ p, onOpenTools }: { p: PlayerApi; onOpenTool
   const VolIcon = effective === 0 ? VolumeX : effective < 0.5 ? Volume1 : Volume2
 
   return (
-    <footer className="hidden items-center gap-6 border-t border-white/5 bg-panel/90 px-4 py-3 backdrop-blur md:grid md:grid-cols-[1fr_minmax(320px,2fr)_1fr]">
+    <section id="player" aria-label="Player controls" className="hidden items-center gap-6 border-t border-white/5 bg-panel/90 px-4 py-3 backdrop-blur md:grid md:grid-cols-[1fr_minmax(320px,2fr)_1fr]">
       <div className="flex min-w-0 items-center gap-3">
         <Cover track={current} className="h-12 w-12 shrink-0 rounded-md" iconSize={18} />
         <div className="min-w-0">
@@ -114,9 +116,9 @@ export default function PlayerBar({ p, onOpenTools }: { p: PlayerApi; onOpenTool
           <VolIcon size={20} />
         </button>
         <div className="w-28">
-          <Slider value={effective} max={1} step={0.01} onChange={p.setVolume} label="Volume" />
+          <Slider value={effective} max={1} step={0.01} onChange={p.setVolume} label="Volume" valueText={muted ? 'Muted' : spokenPercent(volume)} />
         </div>
       </div>
-    </footer>
+    </section>
   )
 }

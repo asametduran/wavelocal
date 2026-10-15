@@ -150,7 +150,7 @@ export default function EqCurve({ bands, enabled, selectedId, onSelect, onChange
         {GRAPHIC_FREQS.map((f) => (
           <g key={f}>
             <line x1={xOf(f)} x2={xOf(f)} y1={PT} y2={PT + PLOT_H} className="stroke-white/[0.07]" strokeWidth={1} />
-            <text x={xOf(f)} y={H - 6} textAnchor="middle" className="fill-zinc-500 text-[9px]">
+            <text x={xOf(f)} y={H - 6} textAnchor="middle" className="fill-zinc-400 text-[9px]">
               {f >= 1000 ? `${f / 1000}k` : f}
             </text>
           </g>
@@ -158,7 +158,7 @@ export default function EqCurve({ bands, enabled, selectedId, onSelect, onChange
         {gridDb.map((db) => (
           <g key={db}>
             <line x1={PL} x2={PL + PLOT_W} y1={yOf(db)} y2={yOf(db)} className={db === 0 ? 'stroke-white/25' : 'stroke-white/[0.07]'} strokeWidth={1} />
-            <text x={PL - 6} y={yOf(db) + 3} textAnchor="end" className="fill-zinc-500 text-[9px]">
+            <text x={PL - 6} y={yOf(db) + 3} textAnchor="end" className="fill-zinc-400 text-[9px]">
               {db > 0 ? `+${db}` : db}
             </text>
           </g>
@@ -183,7 +183,7 @@ export default function EqCurve({ bands, enabled, selectedId, onSelect, onChange
             aria-valuemax={FREQ_MAX}
             aria-valuenow={Math.round(band.frequency)}
             aria-valuetext={describeBand(band)}
-            aria-selected={selected}
+            aria-current={selected ? 'true' : undefined}
             className="cursor-grab outline-none focus-visible:[&>circle:first-child]:stroke-white"
             onPointerDown={(e) => onHandleDown(e, band)}
             onFocus={() => onSelect(band.id)}
@@ -195,7 +195,7 @@ export default function EqCurve({ bands, enabled, selectedId, onSelect, onChange
           >
             <title>{`${describeBand(band)} (${formatFrequency(band.frequency)})`}</title>
             <circle cx={cx} cy={cy} r={selected ? 11 : 9} className={`${selected ? 'fill-accent stroke-white' : 'fill-base stroke-accent'}`} strokeWidth={2} />
-            <text x={cx} y={cy + 3.5} textAnchor="middle" className={`pointer-events-none text-[10px] font-bold ${selected ? 'fill-black' : 'fill-white'}`}>
+            <text x={cx} y={cy + 3.5} textAnchor="middle" className={`pointer-events-none text-[10px] font-bold ${selected ? 'fill-on-accent' : 'fill-white'}`}>
               {i + 1}
             </text>
           </g>

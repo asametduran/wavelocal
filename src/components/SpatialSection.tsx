@@ -6,7 +6,7 @@ import { ORBIT_MAX_SECONDS, ORBIT_MIN_SECONDS, PAD_PRESETS, radiusMeters } from 
 import type { PlayerApi } from '../types'
 
 const chip = (on: boolean) =>
-  `rounded-full px-3 py-1.5 text-sm font-semibold transition ${on ? 'bg-accent text-black' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
+  `rounded-full px-3 py-1.5 text-sm font-semibold transition ${on ? 'bg-accent text-on-accent' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
 
 /** 3D spatial audio controls: position pad, distance, wet/dry mix and the "8D" auto-rotate mode. */
 export default function SpatialSection({ p }: { p: PlayerApi }) {
@@ -35,7 +35,7 @@ export default function SpatialSection({ p }: { p: PlayerApi }) {
       </div>
 
       {!supported ? (
-        <p className="text-xs text-zinc-500">This browser cannot position sounds in 3D, so the effect is unavailable.</p>
+        <p className="text-xs text-zinc-400">This browser cannot position sounds in 3D, so the effect is unavailable.</p>
       ) : (
         <div className={`flex flex-col gap-4 transition-opacity sm:flex-row sm:items-start ${dim}`}>
           <div className="flex flex-col items-center gap-2 self-center">
@@ -105,7 +105,7 @@ export default function SpatialSection({ p }: { p: PlayerApi }) {
               disabled={!s.enabled || !s.rotate}
               onChange={(orbitSeconds) => setSpatial({ orbitSeconds })}
             />
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-zinc-400">
               Best with headphones. Drag the dot (or use the arrow keys) to place the sound around you; turn on Auto-rotate to circle it
               around your head.
             </p>

@@ -1,11 +1,12 @@
 import { useMemo } from 'react'
 import { Waves } from 'lucide-react'
 import RangeRow from './RangeRow'
+import RovingGroup from './RovingGroup'
 import { DECAY_MAX, DECAY_MIN, PRE_DELAY_MAX_MS, ROOM_KINDS, ROOM_PROFILES, generateImpulseResponse, irEnvelope } from '../lib/reverb'
 import type { PlayerApi, RoomKind } from '../types'
 
 const chip = (on: boolean) =>
-  `rounded-full px-3 py-1.5 text-sm font-semibold transition ${on ? 'bg-accent text-black' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
+  `rounded-full px-3 py-1.5 text-sm font-semibold transition ${on ? 'bg-accent text-on-accent' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
 
 const PREVIEW_WIDTH = 240
 const PREVIEW_HEIGHT = 44
@@ -58,14 +59,14 @@ export default function ReverbSection({ p }: { p: PlayerApi }) {
       </div>
 
       <div className={`flex flex-col gap-3 transition-opacity ${r.enabled ? '' : 'opacity-50'}`}>
-        <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Room">
+        <RovingGroup role="radiogroup" label="Room" className="flex flex-wrap gap-2">
           {ROOM_KINDS.map((room) => (
-            <button key={room} role="radio" aria-checked={r.room === room} onClick={() => setReverb({ room })} className={chip(r.room === room)}>
+            <button key={room} role="radio" aria-checked={r.room === room} tabIndex={r.room === room ? 0 : -1} onClick={() => setReverb({ room })} className={chip(r.room === room)}>
               {ROOM_PROFILES[room].label}
             </button>
           ))}
-        </div>
-        <p className="text-xs text-zinc-500">{profile.description}</p>
+        </RovingGroup>
+        <p className="text-xs text-zinc-400">{profile.description}</p>
 
         <DecayPreview room={r.room} decay={r.decay} />
 

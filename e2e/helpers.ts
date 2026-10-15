@@ -257,7 +257,7 @@ export class PlayerPage {
   readonly footer: Locator
 
   constructor(readonly page: Page) {
-    this.footer = page.locator('footer')
+    this.footer = page.locator('#player')
   }
 
   async open(): Promise<void> {

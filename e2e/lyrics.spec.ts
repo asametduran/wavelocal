@@ -104,9 +104,9 @@ test.describe('other lyric sources', () => {
       buffer: Buffer.from('alpha\nbeta\ngamma'),
     })
     await lyricsTab().click()
-    const alpha = app.stage.getByRole('button', { name: 'alpha', exact: true })
-    await expect(alpha).toBeVisible()
-    await expect(alpha).toBeDisabled()
+    // plain lyrics are text to read, not a wall of disabled buttons
+    await expect(app.stage.getByText('alpha', { exact: true })).toBeVisible()
+    await expect(app.stage.getByRole('button', { name: 'alpha', exact: true })).toHaveCount(0)
     await expect(app.stage.locator('button.scale-105')).toHaveCount(0)
   })
 

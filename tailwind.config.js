@@ -3,7 +3,7 @@ export default {
   content: ['./index.html', './src/**/*.{js,jsx,ts,tsx}', '!./src/**/*.test.*', '!./src/test-utils/**'],
   theme: {
     extend: {
-      colors: { base: '#0a0a0f', panel: '#12121a', raised: '#1b1b27', accent: 'rgb(var(--accent, 167 139 250) / <alpha-value>)' },
+      colors: { base: '#0a0a0f', panel: '#12121a', raised: '#1b1b27', accent: 'rgb(var(--accent, 167 139 250) / <alpha-value>)', 'on-accent': 'rgb(var(--on-accent, 0 0 0) / <alpha-value>)' },
       keyframes: { fadeIn: { from: { opacity: 0, transform: 'translateY(6px)' }, to: { opacity: 1, transform: 'none' } } },
       animation: { fadeIn: 'fadeIn .35s ease-out' },
     },

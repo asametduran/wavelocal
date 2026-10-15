@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { ChevronDown, ListMusic, SlidersHorizontal } from 'lucide-react'
 import Cover from './Cover'
 import Lyrics from './Lyrics'
@@ -8,6 +8,7 @@ import type { StageTab } from './NowPlaying'
 import type { PlayerApi } from '../types'
 import { Transport } from './PlayerBar'
 import { useSwipe } from '../hooks/useSwipe'
+import { useDialog } from '../hooks/useA11y'
 
 /** Full-screen Now Playing for phones. Drag down to minimize; swipe the artwork for prev/next. */
 interface NowPlayingSheetProps {
@@ -23,13 +24,18 @@ export default function NowPlayingSheet({ p, open, onClose, onOpenQueue, onOpenT
   const [tab, setTab] = useState<StageTab>('art')
   const sheet = useSwipe({ onDown: onClose, trackDown: true, threshold: 110 })
   const art = useSwipe({ onLeft: p.next, onRight: p.prev, threshold: 60 })
+  const idBase = useId()
+  const dialog = useRef<HTMLDivElement>(null)
+  useDialog(dialog, open)
 
   return (
     <div
+      ref={dialog}
       inert={!open}
       data-modal={open}
       aria-hidden={!open}
       role="dialog"
+      aria-modal="true"
       aria-label="Now playing"
       className="fixed inset-0 z-40 flex flex-col overflow-hidden bg-base pb-safe pt-safe md:hidden"
       style={{
@@ -47,7 +53,7 @@ export default function NowPlayingSheet({ p, open, onClose, onOpenQueue, onOpenT
         <button onClick={onClose} className="grid h-11 w-11 place-items-center rounded-full text-zinc-300 active:bg-white/10" aria-label="Minimize player">
           <ChevronDown size={28} />
         </button>
-        <StageTabs tab={tab} setTab={setTab} hasLyrics={!!current?.lyrics} />
+        <StageTabs tab={tab} setTab={setTab} hasLyrics={!!current?.lyrics} idBase={idBase} />
         <div className="flex">
           <button onClick={onOpenTools} className="grid h-11 w-11 place-items-center rounded-full text-zinc-300 active:bg-white/10" aria-label="Equalizer and tools">
             <SlidersHorizontal size={20} />
@@ -59,7 +65,7 @@ export default function NowPlayingSheet({ p, open, onClose, onOpenQueue, onOpenT
       </header>
 
       {tab === 'art' ? (
-        <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center px-8" {...art.handlers}>
+        <div role="tabpanel" id={`${idBase}-panel`} aria-labelledby={`${idBase}-art`} className="relative flex min-h-0 flex-1 flex-col items-center justify-center px-8" {...art.handlers}>
           <div
             key={current?.id}
             className={`aspect-square w-full max-w-[min(100%,36dvh)] animate-fadeIn overflow-hidden rounded-2xl shadow-2xl shadow-black/60 ring-1 ring-white/10 transition-transform duration-500 ${playing ? 'scale-100' : 'scale-90'}`}
@@ -73,7 +79,7 @@ export default function NowPlayingSheet({ p, open, onClose, onOpenQueue, onOpenT
           <Visualizer engine={p.engine} playing={playing} className="mt-4 h-12" />
         </div>
       ) : (
-        <div className="relative flex min-h-0 flex-1 flex-col px-2">
+        <div role="tabpanel" id={`${idBase}-panel`} aria-labelledby={`${idBase}-lyrics`} className="relative flex min-h-0 flex-1 flex-col px-2">
           <div className="mb-1 text-center">
             <div className="truncate text-sm font-semibold">{current?.title}</div>
             <div className="truncate text-xs text-zinc-400">{current?.artist}</div>

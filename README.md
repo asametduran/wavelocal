@@ -64,6 +64,16 @@ In TV mode arrow keys move focus (D-pad) instead of seeking; use the focused see
 | `S` | Shuffle |
 | `R` | Cycle repeat (off → all → one) |
 | `/` | Focus search (`Esc` to leave) |
+| `Alt+↑` / `Alt+↓` | Move the focused track up / down the queue (the keyboard alternative to dragging) |
+
+## Accessibility
+
+Wavelocal targets WCAG 2.2 AA and is checked automatically: `e2e/a11y.spec.ts` runs axe-core (WCAG 2.0 to 2.2 A/AA plus best practices) over the empty library, a playing track, both stage tabs, the folder view, the sound tools, the shortcut list, the tag editor and the phone sheets, and fails on any violation.
+
+- **Screen readers** - landmarks and a skip-link pair (library, player controls), one polite live region that announces track changes, play/pause, search result counts and reorders, spoken slider values ("1 minute 5 seconds of 3 minutes 20 seconds"), labelled tab lists, radio groups and menus, and `aria-posinset`/`aria-setsize` on the virtualized track list.
+- **Keyboard** - every dialog and sheet moves focus in, keeps Tab inside (the sound tools and shortcut list also make the page behind them `inert`) and returns focus to the control that opened it; tabs and radio groups use arrow keys / Home / End with a single tab stop; the add-to-playlist menu is arrow-key operable; reordering works without dragging (`Alt+↑`/`Alt+↓`).
+- **Motion** - follows the system "reduce motion" setting, with a Motion override (follow device / reduce / full) in Sound & tools for WebViews that cannot see it. Reduced motion turns off animations, smooth scrolling and the live visualizer (a still frame is drawn).
+- **Contrast** - secondary text meets 4.5:1 on every surface, and an accent colour that is too dark to read is lightened automatically while the text on filled accent buttons flips between black and white (`src/lib/contrast.ts`). `prefers-contrast: more` and Windows forced-colors mode have dedicated styles.
 
 ## Run locally
 
@@ -81,7 +91,7 @@ The whole app is TypeScript with `strict`, `noUncheckedIndexedAccess` and `noImp
 
 | Command | What it runs |
 | --- | --- |
-| `npm test` | Vitest + jsdom unit tests (`src/**/*.test.ts`): LRC, loudness, metadata and ReplayGain, queue logic, and the synthetic-audio tooling itself |
+| `npm test` | Vitest + jsdom unit tests (`src/**/*.test.ts`): LRC, loudness, metadata and ReplayGain, queue logic, contrast/focus/motion helpers, and the synthetic-audio tooling itself |
 | `npm run test:e2e` | Builds the app, then runs the Playwright suite headlessly in Chromium (`e2e/`): import, playback, seek, queue reorder, search, playlists, persistence across reloads, lyrics sync, EQ, speed, normalization, sleep timer and gapless/crossfade transitions |
 
 First-time e2e setup: `npx playwright install chromium`. No audio files are committed: every test generates synthetic WAV/ID3 data in code (`src/test-utils/`), including sine, sweep, silence, clipped and different-loudness fixtures, plus a small FLAC encoder used to build FLAC fixtures. The JavaScript FLAC decoder is also checked sample-for-sample against the browser's native decoder. The e2e tests also inspect the real Web Audio graph (filter gains, normalization gain nodes, crossfade overlap) rather than only the DOM.

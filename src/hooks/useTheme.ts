@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { accentTheme, parseHex } from '../lib/contrast'
 
 const KEY = 'wl-accent'
 export const DEFAULT_ACCENT = '#a78bfa'
@@ -30,10 +31,14 @@ export function useTheme(): [accent: string, setAccent: (hex: string) => void] {
   const [accent, setAccentState] = useState(load)
 
   useEffect(() => {
-    const n = parseInt(accent.slice(1), 16)
+    // a very dark pick is lightened until it is readable on the dark surfaces; text on filled accent areas flips to white when needed
+    const theme = accentTheme(accent)
+    const shown = parseHex(theme?.accent ?? DEFAULT_ACCENT) ?? [167, 139, 250]
+    const on = parseHex(theme?.on ?? '#000000') ?? [0, 0, 0]
     const s = document.documentElement.style
-    s.setProperty('--accent', `${(n >> 16) & 255} ${(n >> 8) & 255} ${n & 255}`)
-    s.setProperty('--accent-hex', accent)
+    s.setProperty('--accent', shown.join(' '))
+    s.setProperty('--accent-hex', theme?.accent ?? accent)
+    s.setProperty('--on-accent', on.join(' '))
   }, [accent])
 
   const setAccent = useCallback((v: string) => {

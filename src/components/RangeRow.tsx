@@ -29,6 +29,7 @@ export default function RangeRow({ label, ariaLabel, value, min, max, step, disp
         value={value}
         disabled={disabled}
         aria-label={ariaLabel ?? label}
+        aria-valuetext={display}
         onChange={(e) => onChange(parseFloat(e.target.value))}
         className="slider always min-w-0 flex-1"
         style={{ '--p': `${pct}%` } as CSSProperties}

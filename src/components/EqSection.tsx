@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import EqCurve from './EqCurve'
 import RangeRow from './RangeRow'
+import RovingGroup from './RovingGroup'
 import { EQ_LABELS, EQ_MAX_DB, EQ_PRESETS } from '../lib/engine'
 import {
   BAND_TYPES,
@@ -28,7 +29,7 @@ type View = 'graphic' | 'parametric'
 const VIEW_KEY = 'wl-eq-view'
 
 const chip = (on: boolean) =>
-  `rounded-full px-4 py-2 text-sm font-semibold transition ${on ? 'bg-accent text-black' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
+  `rounded-full px-4 py-2 text-sm font-semibold transition ${on ? 'bg-accent text-on-accent' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
 
 const loadView = (): View => {
   try {
@@ -89,19 +90,20 @@ export default function EqSection({ p }: { p: PlayerApi }) {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Equalizer</h3>
         <div className="flex items-center gap-3">
-          <div role="tablist" aria-label="Equalizer view" className="flex gap-1 rounded-full bg-white/5 p-1">
+          <RovingGroup role="tablist" label="Equalizer view" className="flex gap-1 rounded-full bg-white/5 p-1">
             {(['graphic', 'parametric'] as const).map((v) => (
               <button
                 key={v}
                 role="tab"
                 aria-selected={view === v}
+                tabIndex={view === v ? 0 : -1}
                 onClick={() => setView(v)}
                 className={`rounded-full px-3 py-1 text-xs font-semibold capitalize transition ${view === v ? 'bg-white text-black' : 'text-zinc-300 hover:bg-white/10'}`}
               >
                 {v}
               </button>
             ))}
-          </div>
+          </RovingGroup>
           <button
             role="switch"
             aria-checked={p.eqOn}
@@ -151,7 +153,7 @@ export default function EqSection({ p }: { p: PlayerApi }) {
         <div className="mb-3 flex items-center justify-between gap-3 rounded-xl bg-white/5 px-3 py-2">
           <div className="min-w-0">
             <div className="text-sm text-zinc-200">Remember EQ for this track</div>
-            <div className="truncate text-xs text-zinc-500">
+            <div className="truncate text-xs text-zinc-400">
               {p.eqRemembered ? `Using its own curve for "${p.current.title}" - other tracks keep the shared EQ.` : `Edits apply to every track without its own EQ. Turn on to give "${p.current.title}" its own curve.`}
             </div>
           </div>
@@ -193,12 +195,12 @@ export default function EqSection({ p }: { p: PlayerApi }) {
                         style={{ '--p': `${((gain + EQ_MAX_DB) / (EQ_MAX_DB * 2)) * 100}%` } as CSSProperties}
                       />
                     </div>
-                    <span className="text-[11px] text-zinc-500">{label}</span>
+                    <span className="text-[11px] text-zinc-400">{label}</span>
                   </div>
                 )
               })}
             </div>
-            <p className="mt-2 text-xs text-zinc-500">Double-click a band to reset it. Values are in dB. Switch to Parametric to shape frequency, width and filter type.</p>
+            <p className="mt-2 text-xs text-zinc-400">Double-click a band to reset it. Values are in dB. Switch to Parametric to shape frequency, width and filter type.</p>
           </>
         ) : (
           <div className="rounded-2xl bg-base/60 p-4 text-sm text-zinc-300">
@@ -230,7 +232,7 @@ export default function EqSection({ p }: { p: PlayerApi }) {
                 onClick={() => setSelectedId(b.id)}
                 aria-pressed={b.id === selectedId}
                 title={describeBand(b)}
-                className={`rounded-full px-3 py-1 text-xs font-semibold tabular-nums transition ${b.id === selectedId ? 'bg-accent text-black' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`}
+                className={`rounded-full px-3 py-1 text-xs font-semibold tabular-nums transition ${b.id === selectedId ? 'bg-accent text-on-accent' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`}
               >
                 {i + 1} · {formatFrequency(b.frequency)}
               </button>
@@ -243,19 +245,20 @@ export default function EqSection({ p }: { p: PlayerApi }) {
           {selected && info ? (
             <div className="flex flex-col gap-3 rounded-2xl bg-base/60 p-3" role="group" aria-label={`Band ${selectedIndex + 1} settings`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Band type">
+                <RovingGroup role="radiogroup" label="Band type" className="flex flex-wrap gap-1.5">
                   {BAND_TYPES.map((t) => (
                     <button
                       key={t.type}
                       role="radio"
                       aria-checked={selected.type === t.type}
+                      tabIndex={selected.type === t.type ? 0 : -1}
                       onClick={() => p.updateEqBand(selected.id, { type: t.type })}
-                      className={`rounded-full px-3 py-1 text-xs font-semibold transition ${selected.type === t.type ? 'bg-accent text-black' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold transition ${selected.type === t.type ? 'bg-accent text-on-accent' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`}
                     >
                       {t.label}
                     </button>
                   ))}
-                </div>
+                </RovingGroup>
                 <button onClick={() => p.removeEqBand(selected.id)} className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-zinc-300 hover:text-red-400">
                   Remove band
                 </button>
@@ -296,9 +299,9 @@ export default function EqSection({ p }: { p: PlayerApi }) {
               )}
             </div>
           ) : (
-            <p className="text-sm text-zinc-500">No bands - this equalizer is flat. Add a band, or double-click the curve.</p>
+            <p className="text-sm text-zinc-400">No bands - this equalizer is flat. Add a band, or double-click the curve.</p>
           )}
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-zinc-400">
             Drag a handle to set frequency and gain, scroll over it to change the width (Q), double-click empty space to add a band. With a handle focused: arrow keys move
             it, + / - change Q, Delete removes it. Range {formatFrequency(FREQ_MIN)} - {formatFrequency(FREQ_MAX)}, up to {MAX_BANDS} bands.
           </p>

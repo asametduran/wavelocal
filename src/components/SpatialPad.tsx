@@ -119,7 +119,7 @@ export default function SpatialPad({ x, y, disabled = false, livePosition = null
       <circle cx={CENTER} cy={CENTER} r={RADIUS / 2} className="fill-none stroke-white/10" strokeWidth={1} strokeDasharray="3 4" />
       <line x1={CENTER} y1={CENTER - RADIUS} x2={CENTER} y2={CENTER + RADIUS} className="stroke-white/10" strokeWidth={1} />
       <line x1={CENTER - RADIUS} y1={CENTER} x2={CENTER + RADIUS} y2={CENTER} className="stroke-white/10" strokeWidth={1} />
-      <g className="fill-zinc-500 text-[10px]" textAnchor="middle" aria-hidden="true">
+      <g className="fill-zinc-400 text-[10px]" textAnchor="middle" aria-hidden="true">
         <text x={CENTER} y={11}>FRONT</text>
         <text x={CENTER} y={SIZE - 4}>BACK</text>
         <text x={9} y={CENTER + 3} textAnchor="start">L</text>

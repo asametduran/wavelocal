@@ -1,4 +1,6 @@
+import { useRef } from 'react'
 import { X } from 'lucide-react'
+import { useDialog } from '../hooks/useA11y'
 
 const SHORTCUTS: readonly (readonly [keys: string, description: string])[] = [
   ['Space', 'Play / pause'],
@@ -13,6 +15,7 @@ const SHORTCUTS: readonly (readonly [keys: string, description: string])[] = [
   ['E', 'Open sound tools'],
   ['T', 'Toggle TV mode'],
   ['?', 'Show this help'],
+  ['Alt + ↑ / ↓', 'Move the focused track up / down the queue'],
   ['Esc', 'Close the top panel'],
 ]
 
@@ -22,19 +25,22 @@ interface ShortcutsModalProps {
 }
 
 export default function ShortcutsModal({ open, onClose }: ShortcutsModalProps) {
+  const dialog = useRef<HTMLDivElement>(null)
+  useDialog(dialog, open)
   if (!open) return null
   return (
     <div className="fixed inset-0 z-[80] grid place-items-center bg-base/80 p-4 backdrop-blur-sm" onClick={onClose}>
       <div
+        ref={dialog}
         role="dialog"
         aria-modal="true"
-        aria-label="Keyboard shortcuts"
+        aria-labelledby="shortcuts-title"
         className="w-full max-w-md rounded-2xl bg-raised p-5 shadow-xl ring-1 ring-white/10"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Keyboard shortcuts</h2>
-          <button onClick={onClose} aria-label="Close" className="rounded-full p-1.5 text-zinc-400 hover:text-white">
+          <h2 id="shortcuts-title" className="text-lg font-semibold">Keyboard shortcuts</h2>
+          <button onClick={onClose} aria-label="Close" className="grid h-9 w-9 place-items-center rounded-full text-zinc-400 hover:text-white">
             <X size={18} />
           </button>
         </div>

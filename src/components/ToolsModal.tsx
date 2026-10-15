@@ -1,5 +1,10 @@
-import { Moon, Gauge, Palette, Shuffle as Blend, SlidersHorizontal, Volume2, X } from 'lucide-react'
+import { useRef } from 'react'
+import { Accessibility, Moon, Gauge, Palette, Shuffle as Blend, SlidersHorizontal, Volume2, X } from 'lucide-react'
+import { useDialog, useMotionPref, useReducedMotion } from '../hooks/useA11y'
 import { ACCENT_PRESETS, DEFAULT_ACCENT } from '../hooks/useTheme'
+import { accentTheme } from '../lib/contrast'
+import type { MotionPref } from '../lib/motion'
+import RovingGroup from './RovingGroup'
 import DynamicsSection from './DynamicsSection'
 import EqSection from './EqSection'
 import HotkeysSection from './HotkeysSection'
@@ -14,10 +19,15 @@ const MODES: readonly (readonly [id: TransitionMode, label: string, description:
   ['gapless', 'Gapless', 'The next track starts the instant this one ends.'],
   ['crossfade', 'Crossfade', 'Tracks blend into each other over ~5 seconds.'],
 ]
+const MOTION_OPTIONS: readonly (readonly [id: MotionPref, label: string])[] = [
+  ['system', 'Follow device'],
+  ['reduce', 'Reduce motion'],
+  ['full', 'Full motion'],
+]
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
 const chip = (on: boolean) =>
-  `rounded-full px-4 py-2 text-sm font-semibold transition ${on ? 'bg-accent text-black' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
+  `rounded-full px-4 py-2 text-sm font-semibold transition ${on ? 'bg-accent text-on-accent' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
 
 interface ToolsModalProps {
   p: PlayerApi
@@ -29,11 +39,16 @@ interface ToolsModalProps {
 
 /** Sound tools: equalizer, spatial audio, reverb, speed, sleep timer and transitions. Bottom sheet on phones, centered dialog elsewhere. */
 export default function ToolsModal({ p, open, onClose, accent, setAccent }: ToolsModalProps) {
+  const dialog = useRef<HTMLDivElement>(null)
+  useDialog(dialog, open)
+  const [motion, setMotion] = useMotionPref()
+  const reduced = useReducedMotion()
   if (!open) return null
   const mode = MODES.find((m) => m[0] === p.transition) || MODES[0]
+  const accentLightened = accentTheme(accent)?.adjusted === true
 
   return (
-    <div data-modal="true" role="dialog" aria-modal="true" aria-label="Sound and tools" className="fixed inset-0 z-[55] flex items-end justify-center md:items-center">
+    <div ref={dialog} data-modal="true" role="dialog" aria-modal="true" aria-label="Sound and tools" className="fixed inset-0 z-[55] flex items-end justify-center md:items-center">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
       <div className="relative max-h-[92dvh] w-full animate-fadeIn overflow-y-auto rounded-t-3xl bg-panel p-5 pb-safe shadow-2xl md:max-w-2xl md:rounded-3xl md:p-6">
         <div className="mb-4 flex items-center justify-between">
@@ -74,6 +89,7 @@ export default function ToolsModal({ p, open, onClose, accent, setAccent }: Tool
               onChange={(e) => p.setSpeed(parseFloat(e.target.value))}
               onDoubleClick={() => p.setSpeed(1)}
               aria-label="Playback speed"
+              aria-valuetext={`${p.speed.toFixed(2)} times normal speed`}
               className="slider always flex-1"
               style={{ '--p': `${((p.speed - 0.5) / 1.5) * 100}%` } as CSSProperties}
             />
@@ -91,7 +107,7 @@ export default function ToolsModal({ p, open, onClose, accent, setAccent }: Tool
               <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${p.preservePitch ? 'left-6' : 'left-1'}`} />
             </button>
           </label>
-          <p className="mt-2 text-xs text-zinc-500">Off gives a vinyl-style pitch shift as speed changes.</p>
+          <p className="mt-2 text-xs text-zinc-400">Off gives a vinyl-style pitch shift as speed changes.</p>
         </section>
 
         <section aria-label="Accent color" className="mt-6">
@@ -119,6 +135,24 @@ export default function ToolsModal({ p, open, onClose, accent, setAccent }: Tool
               Custom
             </label>
           </div>
+          {accentLightened && <p className="mt-2 text-xs text-zinc-400">That color is too dark to read on this theme, so it is shown slightly lighter.</p>}
+        </section>
+
+        <section aria-label="Motion" className="mt-6">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
+            <Accessibility size={15} /> Motion
+          </h3>
+          <RovingGroup role="radiogroup" label="Animation" className="flex flex-wrap gap-2">
+            {MOTION_OPTIONS.map(([id, label]) => (
+              <button key={id} role="radio" aria-checked={motion === id} tabIndex={motion === id ? 0 : -1} onClick={() => setMotion(id)} className={chip(motion === id)}>
+                {label}
+              </button>
+            ))}
+          </RovingGroup>
+          <p className="mt-2 text-xs text-zinc-400">
+            {reduced ? 'Animations, fades and the live visualizer are switched off.' : 'Sheets slide, lyrics scroll smoothly and the visualizer moves.'}
+            {motion === 'system' ? ' Follows your device setting.' : ''}
+          </p>
         </section>
 
         <section aria-label="Sleep timer" className="mt-6">
@@ -146,14 +180,14 @@ export default function ToolsModal({ p, open, onClose, accent, setAccent }: Tool
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
             <Blend size={15} /> Transitions
           </h3>
-          <div className="flex flex-wrap gap-2" role="radiogroup">
+          <RovingGroup role="radiogroup" label="Track transitions" className="flex flex-wrap gap-2">
             {MODES.map(([id, label]) => (
-              <button key={id} role="radio" aria-checked={p.transition === id} onClick={() => p.setTransition(id)} className={chip(p.transition === id)}>
+              <button key={id} role="radio" aria-checked={p.transition === id} tabIndex={p.transition === id ? 0 : -1} onClick={() => p.setTransition(id)} className={chip(p.transition === id)}>
                 {label}
               </button>
             ))}
-          </div>
-          <p className="mt-2 text-xs text-zinc-500">{mode?.[2]}</p>
+          </RovingGroup>
+          <p className="mt-2 text-xs text-zinc-400">{mode?.[2]}</p>
         </section>
 
         <section aria-label="Volume normalization" className="mt-6">
@@ -171,7 +205,7 @@ export default function ToolsModal({ p, open, onClose, accent, setAccent }: Tool
               <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${p.normalize ? 'left-6' : 'left-1'}`} />
             </button>
           </label>
-          <p className="mt-2 text-xs text-zinc-500">
+          <p className="mt-2 text-xs text-zinc-400">
             Evens out loud and quiet tracks. Loudness is measured on your device the first time a track plays, then remembered
             {p.current?.gainDb != null && p.normalize ? ` (this track: ${p.current.gainDb > 0 ? '+' : ''}${p.current.gainDb} dB).` : '.'}
           </p>

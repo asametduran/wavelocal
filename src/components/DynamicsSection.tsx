@@ -17,7 +17,7 @@ import {
 import type { CompressorSettings, PlayerApi } from '../types'
 
 const chip = (on: boolean) =>
-  `rounded-full px-3 py-1.5 text-sm font-semibold transition ${on ? 'bg-accent text-black' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
+  `rounded-full px-3 py-1.5 text-sm font-semibold transition ${on ? 'bg-accent text-on-accent' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
 
 const signed = (v: number, digits = 1) => `${v > 0 ? '+' : ''}${v.toFixed(digits)} dB`
 
@@ -182,7 +182,7 @@ export default function DynamicsSection({ p }: { p: PlayerApi }) {
         <div className={`flex flex-col gap-3 transition-opacity ${l.enabled ? '' : 'opacity-50'}`}>
           <RangeRow label="Ceiling" ariaLabel="Limiter ceiling" value={l.ceiling} min={CEILING_RANGE.min} max={CEILING_RANGE.max} step={0.5} display={`${l.ceiling.toFixed(1)} dB`} disabled={!l.enabled} onChange={(ceiling) => setDynamics({ limiter: { ceiling } })} />
           <ReductionMeter read={readLimiter} active={l.enabled} label="Limiter gain reduction" />
-          <p className="text-xs text-zinc-500">Holds the final output under the ceiling, so EQ boosts, width and reverb cannot clip.</p>
+          <p className="text-xs text-zinc-400">Holds the final output under the ceiling, so EQ boosts, width and reverb cannot clip.</p>
         </div>
       </section>
     </>

@@ -41,7 +41,7 @@ function allFolderPaths(node: FolderNode, out = new Set<string>()): Set<string> 
 }
 
 const actionBtn =
-  'grid h-7 w-7 shrink-0 place-items-center rounded-full text-zinc-600 opacity-0 transition hover:bg-white/10 hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100'
+  'grid h-7 w-7 shrink-0 place-items-center rounded-full text-zinc-400 opacity-0 transition hover:bg-white/10 hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100'
 
 interface FolderTreeProps {
   p: PlayerApi
@@ -187,7 +187,7 @@ export default function FolderTree({ p, query, onEdit }: FolderTreeProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between gap-2 px-4 pb-1 text-xs text-zinc-500">
+      <div className="flex items-center justify-between gap-2 px-4 pb-1 text-xs text-zinc-400">
         <span>
           {root.count} {root.count === 1 ? 'track' : 'tracks'}
           {hasFolders ? ` in ${folderCount} ${folderCount === 1 ? 'folder' : 'folders'}` : ''}
@@ -244,10 +244,10 @@ export default function FolderTree({ p, query, onEdit }: FolderTreeProps) {
                   className="flex min-w-0 flex-1 items-center gap-2 text-left"
                   title={node.path}
                 >
-                  <ChevronRight size={14} className={`shrink-0 text-zinc-500 transition-transform ${row.open ? 'rotate-90' : ''}`} aria-hidden="true" />
+                  <ChevronRight size={14} className={`shrink-0 text-zinc-400 transition-transform ${row.open ? 'rotate-90' : ''}`} aria-hidden="true" />
                   {row.open ? <FolderOpen size={16} className="shrink-0 text-accent" aria-hidden="true" /> : <Folder size={16} className="shrink-0 text-zinc-400" aria-hidden="true" />}
                   <span className="truncate text-sm font-medium">{node.name}</span>
-                  <span className="shrink-0 text-xs tabular-nums text-zinc-600">{node.count}</span>
+                  <span className="shrink-0 text-xs tabular-nums text-zinc-400">{node.count}</span>
                 </button>
                 <button
                   tabIndex={tab}
@@ -296,10 +296,10 @@ export default function FolderTree({ p, query, onEdit }: FolderTreeProps) {
                 </div>
                 <div className="min-w-0">
                   <div className={`truncate text-sm ${playing ? 'font-semibold text-accent' : ''}`}>{t.title}</div>
-                  <div className="truncate text-xs text-zinc-500">{t.artist}</div>
+                  <div className="truncate text-xs text-zinc-400">{t.artist}</div>
                 </div>
               </button>
-              <span className="shrink-0 text-xs tabular-nums text-zinc-600">{t.duration ? formatTime(t.duration) : ''}</span>
+              <span className="shrink-0 text-xs tabular-nums text-zinc-400">{t.duration ? formatTime(t.duration) : ''}</span>
               <button tabIndex={tab} onClick={() => onEdit(t.id)} className={actionBtn} aria-label={`Edit tags of ${t.title}`} aria-haspopup="dialog">
                 <Pencil size={14} />
               </button>
@@ -311,7 +311,7 @@ export default function FolderTree({ p, query, onEdit }: FolderTreeProps) {
         })}
         {end < rows.length && <li role="none" aria-hidden="true" style={{ height: (rows.length - end) * ROW_H }} />}
         {!rows.length && (
-          <li role="none" className="px-4 py-10 text-center text-sm text-zinc-500">
+          <li role="none" className="px-4 py-10 text-center text-sm text-zinc-400">
             {p.queue.length ? 'No tracks match your search.' : 'Nothing here yet. Add a folder and its structure shows up here.'}
           </li>
         )}

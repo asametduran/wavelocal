@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AudioEngine } from '../lib/engine'
+import { useReducedMotion } from '../hooks/useA11y'
 
 interface VisualizerProps {
   engine: AudioEngine
@@ -13,6 +14,7 @@ type VisualizerMode = 'bars' | 'wave'
 export default function Visualizer({ engine, playing, className = '' }: VisualizerProps) {
   const ref = useRef<HTMLCanvasElement>(null)
   const [mode, setMode] = useState<VisualizerMode>('bars')
+  const reduced = useReducedMotion()
 
   useEffect(() => {
     const canvas = ref.current
@@ -90,21 +92,22 @@ export default function Visualizer({ engine, playing, className = '' }: Visualiz
         }
         g.stroke()
       }
-      if (alive || playing) raf = requestAnimationFrame(draw)
+      // with reduced motion a single still frame is drawn instead of an animation loop
+      if ((alive || playing) && !reduced) raf = requestAnimationFrame(draw)
     }
     draw()
     return () => {
       cancelAnimationFrame(raf)
       ro.disconnect()
     }
-  }, [engine, playing, mode])
+  }, [engine, playing, mode, reduced])
 
   return (
     <button
       type="button"
       onClick={() => setMode((m) => (m === 'bars' ? 'wave' : 'bars'))}
       className={`block w-full rounded-lg ${className}`}
-      aria-label={`Visualizer: ${mode}. Click to switch`}
+      aria-label={`Visualizer: ${mode}${reduced ? ', still because motion is reduced' : ''}. Click to switch`}
       title="Switch visualizer"
     >
       <canvas ref={ref} className="h-full w-full" aria-hidden="true" />

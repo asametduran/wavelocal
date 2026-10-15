@@ -4,6 +4,7 @@ import { Loader2, Upload } from 'lucide-react'
 import { usePlayer } from './hooks/usePlayer'
 import { useDesktopTray } from './hooks/useDesktopTray'
 import { useHotkeys } from './hooks/useHotkeys'
+import { useTrackAnnouncements } from './hooks/useA11y'
 import { useTvMode } from './hooks/useTvMode'
 import { useTheme } from './hooks/useTheme'
 import { filesFromDrop } from './lib/dropped'
@@ -11,6 +12,7 @@ import Playlist from './components/Playlist'
 import NowPlaying from './components/NowPlaying'
 import NowPlayingSheet from './components/NowPlayingSheet'
 import QueueSheet from './components/QueueSheet'
+import LiveRegion, { SkipLinks } from './components/LiveRegion'
 import { lazyPanel, preloadWhenIdle } from './components/lazy'
 import PlayerBar, { MiniBar } from './components/PlayerBar'
 
@@ -23,6 +25,7 @@ const ShortcutsModal = lazyPanel('the shortcut list', loadShortcuts)
 export default function App() {
   const p = usePlayer()
   useDesktopTray(p)
+  useTrackAnnouncements(p.current, p.playing)
   const [tv, setTv] = useTvMode()
   const [accent, setAccent] = useTheme()
   const fileInput = useRef<HTMLInputElement>(null)
@@ -134,27 +137,34 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col pt-safe">
+      <SkipLinks />
+      <LiveRegion />
       <input ref={fileInput} type="file" accept="audio/*,.mp3,.m4a,.flac,.ogg,.wav,.lrc" multiple hidden onChange={onInput} />
       <input ref={folderInput} type="file" webkitdirectory="" directory="" multiple hidden onChange={onInput} />
 
-      <main className="flex min-h-0 flex-1">
-        <Playlist
-          p={p}
-          searchRef={searchRef}
-          onPickFiles={pickFiles}
-          onPickFolder={pickFolder}
-          tv={tv}
-          onToggleTv={() => setTv((v) => !v)}
-          className="flex-1 md:flex-none"
-        />
-        <NowPlaying p={p} onPickFiles={pickFiles} onPickFolder={pickFolder} />
-      </main>
+      {/* everything behind a modal dialog is inert: no focus, no screen reader virtual cursor, no clicks */}
+      <div className="contents" inert={helpOpen || toolsOpen}>
+        <main className="flex min-h-0 flex-1">
+          <h1 className="sr-only">Wavelocal music player</h1>
+          <Playlist
+            p={p}
+            id="library"
+            searchRef={searchRef}
+            onPickFiles={pickFiles}
+            onPickFolder={pickFolder}
+            tv={tv}
+            onToggleTv={() => setTv((v) => !v)}
+            className="flex-1 md:flex-none"
+          />
+          <NowPlaying p={p} onPickFiles={pickFiles} onPickFolder={pickFolder} />
+        </main>
 
-      <MiniBar p={p} onOpen={() => setNowOpen(true)} />
-      <PlayerBar p={p} onOpenTools={() => setToolsOpen(true)} />
+        <MiniBar p={p} onOpen={() => setNowOpen(true)} />
+        <PlayerBar p={p} onOpenTools={() => setToolsOpen(true)} />
 
-      <NowPlayingSheet p={p} open={nowOpen} onClose={() => setNowOpen(false)} onOpenQueue={() => setQueueOpen(true)} onOpenTools={() => setToolsOpen(true)} />
-      <QueueSheet p={p} open={queueOpen} onClose={() => setQueueOpen(false)} onPickFiles={pickFiles} onPickFolder={pickFolder} />
+        <NowPlayingSheet p={p} open={nowOpen} onClose={() => setNowOpen(false)} onOpenQueue={() => setQueueOpen(true)} onOpenTools={() => setToolsOpen(true)} />
+        <QueueSheet p={p} open={queueOpen} onClose={() => setQueueOpen(false)} onPickFiles={pickFiles} onPickFolder={pickFolder} />
+      </div>
       <ShortcutsModal open={helpOpen} onClose={() => setHelpOpen(false)} />
       <ToolsModal p={p} accent={accent} setAccent={setAccent} open={toolsOpen} onClose={() => setToolsOpen(false)} />
 
@@ -166,7 +176,7 @@ export default function App() {
 
       {p.decoding !== null && (
         <div className="fixed right-4 top-16 z-[60] flex items-center gap-2 rounded-full bg-raised px-4 py-2 text-sm shadow-lg" role="status">
-          <Loader2 size={16} className="animate-spin text-accent" /> Decoding lossless audio… {Math.round(p.decoding * 100)}%
+          <Loader2 size={16} className="animate-spin text-accent" /> Decoding lossless audio… <span aria-hidden="true">{Math.round(p.decoding * 100)}%</span>
         </div>
       )}
 
