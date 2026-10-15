@@ -1,6 +1,7 @@
 /** Shared domain types for Wavelocal. Type-only: contains no runtime code. */
 import type { Dispatch, SetStateAction } from 'react'
 import type { AudioEngine } from './lib/engine'
+import type { TagEdit } from './lib/tags'
 
 /** One lyric line; `t` is the start time in seconds, or null for unsynced (plain) lyrics. */
 export interface LyricLine {
@@ -195,6 +196,9 @@ export interface DynamicsPatch {
   limiter?: Partial<LimiterSettings>
 }
 
+/** Result of `PlayerApi.editTags`. */
+export type TagEditOutcome = { ok: true; embedded: boolean } | { ok: false; error: string }
+
 /** Everything `usePlayer` exposes to the UI. */
 export interface PlayerApi {
   engine: AudioEngine
@@ -280,6 +284,11 @@ export interface PlayerApi {
   /** Import files (audio plus optional `.lrc`); resolves with the number of tracks added. */
   addFiles: (files: Iterable<File> | ArrayLike<File>) => Promise<number>
   attachLrc: (file: Blob) => Promise<void>
+  /**
+   * Edit a track's title, artist, album and cover. The library record always changes; for MP3s the tags are also
+   * written into the stored copy of the file. Never rejects: failures come back as `{ ok: false, error }`.
+   */
+  editTags: (id: string, edit: TagEdit) => Promise<TagEditOutcome>
   remove: (id: string) => void
   clear: () => void
   reorder: (from: number, to: number) => void

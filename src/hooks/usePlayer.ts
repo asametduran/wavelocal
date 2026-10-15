@@ -4,13 +4,15 @@ import * as db from '../lib/db'
 import { estimateGainDb } from '../lib/loudness'
 import { buildTrack, filesToTracks, lrcFromFile, norm, revokeTrack } from '../lib/metadata'
 import { moveItem, nextRepeat, pickTrack, resolveQueue } from '../lib/queue'
+import { applyTagEdit } from '../lib/tags'
+import type { TagEdit } from '../lib/tags'
 import { PlayableResolver, createWorkerConvert } from '../lib/audio/playable'
 import { AudioDecodeError } from '../lib/audio/pcm'
 import { mergeSpatial, normalizeSpatial } from '../lib/spatial'
 import { addBand, bandsFromSettings, deletePreset, findPreset, graphicBands, normalizePresets, normalizeTrackEq, removeBand, savePreset, updateBand } from '../lib/eq'
 import { mergeReverb, normalizeReverb } from '../lib/reverb'
 import { mergeDynamics, mergeStereo, mergeTone, normalizeDynamics, normalizeStereo, normalizeTone } from '../lib/dynamics'
-import type { DynamicsPatch, DynamicsSettings, EqBand, EqPreset, Lyrics, PlayerApi, Playlist, RepeatMode, ReverbSettings, Settings, SpatialSettings, StereoSettings, ToneSettings, Track, TransitionMode } from '../types'
+import type { DynamicsPatch, DynamicsSettings, EqBand, EqPreset, Lyrics, PlayerApi, Playlist, RepeatMode, ReverbSettings, Settings, SpatialSettings, StereoSettings, TagEditOutcome, ToneSettings, Track, TransitionMode } from '../types'
 
 const clamp = (v: number, a: number, b: number): number => Math.min(b, Math.max(a, v))
 const XFADE_SECS = 5
@@ -395,6 +397,42 @@ export function usePlayer(): PlayerApi {
     },
     [notify, updateLyrics],
   )
+
+  // ---- tag editing ----
+  const editTags = useCallback(async (id: string, edit: TagEdit): Promise<TagEditOutcome> => {
+    const before = state.current.tracks.find((x) => x.id === id)
+    if (!before) return { ok: false, error: 'That track is no longer in the library' }
+    let res
+    try {
+      res = await applyTagEdit(before, edit)
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : 'Could not edit the tags' }
+    }
+    // the track may have changed (loudness, lyrics) or been removed while the file was rewritten
+    const latest = state.current.tracks.find((x) => x.id === id)
+    if (!latest) return { ok: false, error: 'That track was removed' }
+    const cover = res.coverChanged ? (res.record.coverBlob ? URL.createObjectURL(res.record.coverBlob) : null) : latest.cover
+    const updated: Track = {
+      ...latest,
+      title: res.record.title,
+      artist: res.record.artist,
+      album: res.record.album,
+      file: res.record.file,
+      coverBlob: res.record.coverBlob,
+      cover,
+    }
+    try {
+      await db.putTracks([updated])
+    } catch {
+      if (res.coverChanged && cover) URL.revokeObjectURL(cover)
+      return { ok: false, error: 'Could not save to the offline library (storage blocked or full)' }
+    }
+    // `url` stays: the audio is identical, so playback is not interrupted
+    state.current.tracks = state.current.tracks.map((x) => (x.id === id ? updated : x))
+    setTracks((l) => l.map((x) => (x.id === id ? updated : x)))
+    if (res.coverChanged && latest.cover) URL.revokeObjectURL(latest.cover)
+    return { ok: true, embedded: res.embedded }
+  }, [])
 
   // ---- library ----
   const addFiles = useCallback(
@@ -968,14 +1006,14 @@ export function usePlayer(): PlayerApi {
     } catch {
       /* ignore invalid state */
     }
-  }, [getEl, currentId, playing, duration])
+  }, [getEl, currentId, playing, duration, current?.title, current?.artist, current?.album, current?.cover])
 
   return {
     engine, tracks, queue, playlists, viewId, setViewId, current, currentId, playing, time, duration, volume, muted,
     repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, normalize, setNormalize, eq, eqOn, setEqOn, setEqBand, applyPreset, eqBands, updateEqBand, addEqBand, removeEqBand, resetEq, eqRemembered, setEqRemembered, eqPresets, saveEqPreset, loadEqPreset, deleteEqPreset, spatial, setSpatial, reverb, setReverb, dynamics, setDynamics, stereo, setStereo, tone, setTone, sleepLeft, setSleep,
     loading, notice, hydrated, decoding,
     play, toggle, next: () => next(false), prev, seek, seekBy, setVolume, volumeBy, toggleMute,
-    cycleRepeat, toggleShuffle, addFiles, attachLrc, remove, clear, reorder,
+    cycleRepeat, toggleShuffle, addFiles, attachLrc, editTags, remove, clear, reorder,
     createPlaylist, addToPlaylist, deletePlaylist,
   }
 }

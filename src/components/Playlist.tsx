@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, RefObject, UIEvent } from 'react'
-import { FolderOpen, GripVertical, ListPlus, Plus, Search, Trash2, Tv, X } from 'lucide-react'
+import { FolderOpen, GripVertical, ListPlus, Pencil, Plus, Search, Trash2, Tv, X } from 'lucide-react'
 import Cover from './Cover'
+import TagEditor from './TagEditor'
 import { formatTime } from '../lib/format'
 import type { PlayerApi } from '../types'
 
@@ -35,6 +36,8 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
   const [dragFrom, setDragFrom] = useState<number | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
   const [menuFor, setMenuFor] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const editing = editingId ? (p.tracks.find((t) => t.id === editingId) ?? null) : null
 
   const listRef = useRef<HTMLUListElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
@@ -192,6 +195,9 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
                 </div>
               </button>
               <span className="shrink-0 text-xs tabular-nums text-zinc-600">{t.duration ? formatTime(t.duration) : ''}</span>
+              <button onClick={() => (setMenuFor(null), setEditingId(t.id))} className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-zinc-600 opacity-0 transition hover:bg-white/10 hover:text-white focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100" aria-label={`Edit tags of ${t.title}`} aria-haspopup="dialog">
+                <Pencil size={14} />
+              </button>
               <button onClick={() => setMenuFor(menuFor === t.id ? null : t.id)} className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-zinc-600 opacity-0 transition hover:bg-white/10 hover:text-white focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100" aria-label={`Add ${t.title} to playlist`} aria-haspopup="menu" aria-expanded={menuFor === t.id}>
                 <ListPlus size={15} />
               </button>
@@ -233,6 +239,7 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
           </li>
         )}
       </ul>
+      {editing && <TagEditor key={editing.id} p={p} track={editing} onClose={() => setEditingId(null)} />}
     </aside>
   )
 }

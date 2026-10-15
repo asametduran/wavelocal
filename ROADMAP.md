@@ -42,7 +42,7 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - [x] D4. Packaging: `electron-builder` config for Windows (NSIS) and a CI job that builds the installer artifact on `windows-latest`
 
 ## Backlog (smaller items, only when the packs are blocked)
-- [ ] Tag editor: edit and save ID3 title/artist/album/cover
+- [x] Tag editor: edit and save ID3 title/artist/album/cover
 - [ ] Folder tree browser (use `webkitRelativePath`)
 - [ ] Performance audit: Lighthouse pass, bundle splitting, lazy-load modals, memory use with huge libraries
 - [ ] Accessibility audit: screen-reader labels, focus order, reduced-motion support
@@ -98,3 +98,4 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - D2: added the system tray to the desktop shell: icon drawn in code (no image files), now-playing tooltip, context menu (play/pause, next, previous, show/hide, close to tray, quit), minimize/close to tray with a remembered preference, typed validated IPC (frame-checked sender, sanitised text, command whitelist) behind the optional `tray` capability of `window.wavelocalDesktop`, and the `useDesktopTray` hook; 49 new unit tests and 7 Electron tray tests.
 - D3: added global media hotkeys: `globalShortcut` bindings for play/pause, next, previous, volume up/down and mute (media keys by default), user-configurable from a Global hotkeys section in the Sound panel (key recorder), with accelerator parsing/canonicalisation, reserved-combination and duplicate checks, atomic changes that keep the old binding when the system refuses, retry of keys another app held, persistence, and the separate `commands`/`hotkeys` capabilities of the feature-detected bridge (web/PWA/Android unaffected); 60+ new unit tests and 6 Electron hotkey tests.
 - D4: added Windows packaging: electron-builder config (per-user NSIS installer, web build bundled under resources/web, tests and source maps kept out of the asar), `desktop:dist`/`desktop:pack`, an installer verifier, a packaged-app smoke test, and a `windows-latest` workflow that builds, verifies, smoke-tests and uploads the installer artifact.
+- Backlog: added a tag editor (pencil on every library row): edit title/artist/album/cover in an accessible dialog; MP3s get the tags rewritten into the stored copy by a new ID3v2.2/2.3/2.4 rewriter that keeps ReplayGain, lyrics and all other frames and never touches the audio bytes; other formats update the library only; cover validated by magic bytes; "Download copy" hands back the tagged file; 28 unit tests and 9 e2e tests.
