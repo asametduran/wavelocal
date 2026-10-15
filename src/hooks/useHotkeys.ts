@@ -1,18 +1,35 @@
 import { useEffect } from 'react'
+import type { PlayerApi } from '../types'
 
 const BACK_KEYS = new Set(['Escape', 'GoBack', 'BrowserBack', 'XF86Back'])
 const BACK_CODES = new Set([10009, 461]) // Tizen / webOS remotes
+
+/** The slice of the player API the hotkeys drive. */
+export type HotkeyPlayer = Pick<PlayerApi, 'toggle' | 'next' | 'prev' | 'seekBy' | 'volumeBy' | 'toggleMute' | 'toggleShuffle' | 'cycleRepeat'>
+
+export interface HotkeyOptions {
+  focusSearch?: () => void
+  /** Return true when the back action was handled (the key press is then swallowed). */
+  onBack?: () => boolean
+  tv?: boolean
+  toggleTv?: () => void
+  openTools?: () => void
+  toggleHelp?: () => void
+}
+
+type Action = () => void
+type ActionMap = Record<string, Action | undefined>
 
 /**
  * Global hotkeys. Dedicated media keys always work (TV remotes, keyboards);
  * letter / arrow shortcuts are ignored while typing. In TV mode arrows are left to
  * the D-pad navigator instead of seeking.
  */
-export function useHotkeys(p, { focusSearch, onBack, tv, toggleTv, openTools, toggleHelp } = {}) {
+export function useHotkeys(p: HotkeyPlayer, { focusSearch, onBack, tv, toggleTv, openTools, toggleHelp }: HotkeyOptions = {}): void {
   useEffect(() => {
-    const onKey = (e) => {
+    const onKey = (e: KeyboardEvent) => {
       const k = e.key
-      const media = {
+      const mediaKeys: ActionMap = {
         MediaPlayPause: () => p.toggle(),
         MediaPlay: () => p.toggle(),
         MediaPause: () => p.toggle(),
@@ -21,7 +38,8 @@ export function useHotkeys(p, { focusSearch, onBack, tv, toggleTv, openTools, to
         MediaFastForward: () => p.seekBy(10),
         MediaRewind: () => p.seekBy(-10),
         MediaStop: () => p.toggle(),
-      }[k]
+      }
+      const media = mediaKeys[k]
       if (media) {
         e.preventDefault()
         media()
@@ -35,10 +53,10 @@ export function useHotkeys(p, { focusSearch, onBack, tv, toggleTv, openTools, to
       const el = e.target
       const typing =
         el instanceof HTMLElement &&
-        (el.isContentEditable || /^(TEXTAREA|SELECT)$/.test(el.tagName) || (el.tagName === 'INPUT' && el.type !== 'range'))
+        (el.isContentEditable || /^(TEXTAREA|SELECT)$/.test(el.tagName) || (el instanceof HTMLInputElement && el.type !== 'range'))
       if (typing || e.ctrlKey || e.metaKey || e.altKey) return
 
-      const arrows = tv
+      const arrows: ActionMap = tv
         ? {}
         : {
             ArrowLeft: () => (e.shiftKey ? p.prev() : p.seekBy(-5)),
@@ -46,7 +64,7 @@ export function useHotkeys(p, { focusSearch, onBack, tv, toggleTv, openTools, to
             ArrowUp: () => p.volumeBy(0.05),
             ArrowDown: () => p.volumeBy(-0.05),
           }
-      const actions = {
+      const actions: ActionMap = {
         ...arrows,
         ' ': () => p.toggle(),
         m: () => p.toggleMute(),

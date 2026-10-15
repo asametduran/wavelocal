@@ -1,4 +1,6 @@
-/** Shared domain types for Wavelocal. Kept free of runtime code so it can be imported anywhere. */
+/** Shared domain types for Wavelocal. Type-only: contains no runtime code. */
+import type { Dispatch, SetStateAction } from 'react'
+import type { AudioEngine } from './lib/engine'
 
 /** One lyric line; `t` is the start time in seconds, or null for unsynced (plain) lyrics. */
 export interface LyricLine {
@@ -16,7 +18,7 @@ export interface TrackRecord {
   id: string
   /** Dedupe key: `name|size|lastModified`. */
   key: string
-  file: File | Blob
+  file: File
   coverBlob: Blob | null
   title: string
   artist: string
@@ -83,6 +85,68 @@ export interface PlayerState {
   eqOn: boolean
   /** Seconds until the sleep timer fires, or null when inactive. */
   sleepLeft: number | null
+}
+
+/** Everything `usePlayer` exposes to the UI. */
+export interface PlayerApi {
+  engine: AudioEngine
+  /** The whole library, in library order. */
+  tracks: Track[]
+  /** The tracks of the current view (library or playlist), in play order. */
+  queue: Track[]
+  playlists: Playlist[]
+  /** `'all'` or a playlist id. */
+  viewId: string
+  setViewId: Dispatch<SetStateAction<string>>
+  current: Track | null
+  currentId: string | null
+  playing: boolean
+  time: number
+  duration: number
+  volume: number
+  muted: boolean
+  repeat: RepeatMode
+  shuffle: boolean
+  transition: TransitionMode
+  setTransition: Dispatch<SetStateAction<TransitionMode>>
+  speed: number
+  setSpeed: (v: number) => void
+  preservePitch: boolean
+  setPreservePitch: Dispatch<SetStateAction<boolean>>
+  normalize: boolean
+  setNormalize: Dispatch<SetStateAction<boolean>>
+  eq: EqGains
+  eqOn: boolean
+  setEqOn: Dispatch<SetStateAction<boolean>>
+  setEqBand: (index: number, gainDb: number) => void
+  applyPreset: (name: string) => void
+  /** Seconds left on the sleep timer, or null when it is off. */
+  sleepLeft: number | null
+  /** Start the sleep timer for `minutes`; 0 or null cancels it. */
+  setSleep: (minutes: number | null) => void
+  loading: boolean
+  notice: string
+  hydrated: boolean
+  play: (id: string) => void
+  toggle: () => void
+  next: () => void
+  prev: () => void
+  seek: (seconds: number) => void
+  seekBy: (delta: number) => void
+  setVolume: (v: number) => void
+  volumeBy: (delta: number) => void
+  toggleMute: () => void
+  cycleRepeat: () => void
+  toggleShuffle: () => void
+  /** Import files (audio plus optional `.lrc`); resolves with the number of tracks added. */
+  addFiles: (files: Iterable<File> | ArrayLike<File>) => Promise<number>
+  attachLrc: (file: Blob) => Promise<void>
+  remove: (id: string) => void
+  clear: () => void
+  reorder: (from: number, to: number) => void
+  createPlaylist: (name?: string, trackIds?: string[]) => string
+  addToPlaylist: (playlistId: string, trackId: string) => void
+  deletePlaylist: (id: string) => void
 }
 
 /** Keys and value shapes of the IndexedDB `meta` store. */

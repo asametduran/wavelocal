@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 
+type Direction = 'left' | 'right' | 'up' | 'down'
+type TvSetter = (v: boolean | ((prev: boolean) => boolean)) => void
+
 const TV_UA = /smart-?tv|tizen|web0s|webos|netcast|hbbtv|appletv|crkey|aft[a-z]|android tv|bravia|viera|roku|playstation|xbox|vidaa/i
 const KEY = 'wl-tv'
+const DIRECTIONS: Record<string, Direction | undefined> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }
 
-function detect() {
+function detect(): boolean {
   try {
     const q = new URLSearchParams(location.search).get('tv')
     if (q === '1') return true
@@ -17,32 +21,33 @@ function detect() {
   return TV_UA.test(navigator.userAgent)
 }
 
-const visible = (el) => {
+const visible = (el: Element): boolean => {
   const r = el.getBoundingClientRect()
   if (r.width === 0 || r.height === 0) return false
   const s = getComputedStyle(el)
   return s.visibility !== 'hidden' && s.display !== 'none'
 }
 
-function focusables() {
+function focusables(): HTMLElement[] {
   const modals = document.querySelectorAll('[data-modal="true"]')
-  const root = modals.length ? modals[modals.length - 1] : document
-  return Array.from(root.querySelectorAll('button:not([disabled]), input:not([hidden]):not([type=hidden]), a[href], [tabindex="0"]')).filter(visible)
+  const root: ParentNode = modals[modals.length - 1] ?? document
+  return Array.from(root.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([hidden]):not([type=hidden]), a[href], [tabindex="0"]')).filter(visible)
 }
 
 /** Directional (D-pad) focus: moves focus to the nearest focusable element in the pressed direction. */
-function move(dir) {
+function move(dir: Direction): boolean {
   const cur = document.activeElement
   const list = focusables()
-  if (!list.length) return false
-  if (!cur || cur === document.body || !list.includes(cur)) {
-    list[0].focus()
+  const first = list[0]
+  if (!first) return false
+  if (!cur || cur === document.body || !(cur instanceof HTMLElement) || !list.includes(cur)) {
+    first.focus()
     return true
   }
   const o = cur.getBoundingClientRect()
   const ox = o.left + o.width / 2
   const oy = o.top + o.height / 2
-  let best = null
+  let best: HTMLElement | null = null
   let bestScore = Infinity
   for (const el of list) {
     if (el === cur) continue
@@ -64,14 +69,14 @@ function move(dir) {
   return true
 }
 
-export function useTvMode() {
+export function useTvMode(): [tv: boolean, setTv: TvSetter] {
   const [tv, setTvState] = useState(detect)
 
   useEffect(() => {
     document.documentElement.classList.toggle('tv', tv)
   }, [tv])
 
-  const setTv = useCallback((v) => {
+  const setTv = useCallback<TvSetter>((v) => {
     setTvState((prev) => {
       const nv = typeof v === 'function' ? v(prev) : v
       try {
@@ -86,9 +91,8 @@ export function useTvMode() {
   // D-pad navigation while in TV mode
   useEffect(() => {
     if (!tv) return
-    const dirs = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }
-    const onKey = (e) => {
-      const dir = dirs[e.key]
+    const onKey = (e: KeyboardEvent) => {
+      const dir = DIRECTIONS[e.key]
       if (!dir || e.ctrlKey || e.metaKey || e.altKey) return
       const el = document.activeElement
       const horizontal = dir === 'left' || dir === 'right'

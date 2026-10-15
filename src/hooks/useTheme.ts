@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 const KEY = 'wl-accent'
 export const DEFAULT_ACCENT = '#a78bfa'
-export const ACCENT_PRESETS = [
+export const ACCENT_PRESETS: readonly (readonly [name: string, hex: string])[] = [
   ['Violet', '#a78bfa'],
   ['Pink', '#f472b6'],
   ['Red', '#f87171'],
@@ -15,7 +15,7 @@ export const ACCENT_PRESETS = [
 
 const HEX = /^#[0-9a-f]{6}$/i
 
-function load() {
+function load(): string {
   try {
     const v = localStorage.getItem(KEY)
     if (v && HEX.test(v)) return v.toLowerCase()
@@ -26,7 +26,7 @@ function load() {
 }
 
 /** Persisted accent color, exposed to CSS as `--accent` (space-separated RGB) and `--accent-hex`. */
-export function useTheme() {
+export function useTheme(): [accent: string, setAccent: (hex: string) => void] {
   const [accent, setAccentState] = useState(load)
 
   useEffect(() => {
@@ -36,7 +36,7 @@ export function useTheme() {
     s.setProperty('--accent-hex', accent)
   }, [accent])
 
-  const setAccent = useCallback((v) => {
+  const setAccent = useCallback((v: string) => {
     if (!HEX.test(v)) return
     const hex = v.toLowerCase()
     setAccentState(hex)

@@ -3,61 +3,105 @@ import { AudioEngine, EQ_PRESETS } from '../lib/engine'
 import * as db from '../lib/db'
 import { estimateGainDb } from '../lib/loudness'
 import { buildTrack, filesToTracks, lrcFromFile, norm, revokeTrack } from '../lib/metadata'
+import type { EqGains, Lyrics, PlayerApi, Playlist, RepeatMode, Settings, Track, TransitionMode } from '../types'
 
-const clamp = (v, a, b) => Math.min(b, Math.max(a, v))
+const clamp = (v: number, a: number, b: number): number => Math.min(b, Math.max(a, v))
 const XFADE_SECS = 5
 const SLEEP_FADE_SECS = 12
 const SETTINGS_KEY = 'wl-settings'
 
-function loadSettings() {
+type DeckIndex = 0 | 1
+const otherDeck = (i: DeckIndex): DeckIndex => (i === 0 ? 1 : 0)
+type Timer = ReturnType<typeof setTimeout>
+
+/** `preservesPitch` has vendor-prefixed spellings on older engines. */
+type PitchAudio = HTMLAudioElement & { mozPreservesPitch?: boolean; webkitPreservesPitch?: boolean }
+
+/** Latest render's state, readable from stable callbacks and media-element listeners without stale closures. */
+interface Snapshot {
+  tracks: Track[]
+  queue: Track[]
+  playlists: Playlist[]
+  viewId: string
+  currentId: string | null
+  repeat: RepeatMode
+  shuffle: boolean
+  transition: TransitionMode
+  normalize: boolean
+  hydrated: boolean
+}
+
+interface CrossfadeState {
+  timer: Timer | null
+  active: boolean
+  /** The track already chosen (and preloaded) to play next. */
+  pending: Track | null
+}
+
+function loadSettings(): Partial<Settings> {
   try {
-    return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}
+    const raw = localStorage.getItem(SETTINGS_KEY)
+    return (raw ? (JSON.parse(raw) as Partial<Settings> | null) : null) || {}
   } catch {
     return {}
   }
 }
 
 /** Owns the audio engine (two decks, EQ, analyser) plus queue, playlists, persistence and playback state. */
-export function usePlayer() {
+export function usePlayer(): PlayerApi {
   const [engine] = useState(() => new AudioEngine())
   const [saved] = useState(loadSettings)
 
-  const [tracks, setTracks] = useState([]) // the whole library
-  const [playlists, setPlaylists] = useState([])
+  const [tracks, setTracks] = useState<Track[]>([]) // the whole library
+  const [playlists, setPlaylists] = useState<Playlist[]>([])
   const [viewId, setViewId] = useState('all')
-  const [currentId, setCurrentId] = useState(null)
+  const [currentId, setCurrentId] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [volume, setVolumeState] = useState(saved.volume ?? 0.8)
   const [muted, setMuted] = useState(saved.muted ?? false)
-  const [repeat, setRepeat] = useState(saved.repeat ?? 'off') // off | all | one
+  const [repeat, setRepeat] = useState<RepeatMode>(saved.repeat ?? 'off')
   const [shuffle, setShuffle] = useState(saved.shuffle ?? false)
-  const [transition, setTransition] = useState(saved.transition ?? 'off') // off | gapless | crossfade
-  const [eq, setEq] = useState(Array.isArray(saved.eq) && saved.eq.length === 10 ? saved.eq : EQ_PRESETS.Flat)
+  const [transition, setTransition] = useState<TransitionMode>(saved.transition ?? 'off')
+  const [eq, setEq] = useState<EqGains>(Array.isArray(saved.eq) && saved.eq.length === 10 ? saved.eq : (EQ_PRESETS.Flat ?? new Array<number>(10).fill(0)))
   const [eqOn, setEqOn] = useState(saved.eqOn ?? true)
   const [speed, setSpeedState] = useState(clamp(saved.speed ?? 1, 0.5, 2))
   const [preservePitch, setPreservePitch] = useState(saved.preservePitch ?? true)
   const [normalize, setNormalize] = useState(saved.normalize ?? false)
-  const [sleepLeft, setSleepLeft] = useState(null)
+  const [sleepLeft, setSleepLeft] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
   const [hydrated, setHydrated] = useState(false)
 
-  const active = useRef(0) // index of the deck the user is hearing
-  const history = useRef([])
-  const xfade = useRef({ timer: null, active: false, pending: null })
+  const active = useRef<DeckIndex>(0) // index of the deck the user is hearing
+  const history = useRef<string[]>([])
+  const xfade = useRef<CrossfadeState>({ timer: null, active: false, pending: null })
   const sleep = useRef({ end: 0, fading: false })
-  const pendingSeek = useRef(null)
-  const noticeTimer = useRef(null)
-  const state = useRef({})
+  const pendingSeek = useRef<number | null>(null)
+  const noticeTimer = useRef<Timer | undefined>(undefined)
+  const state = useRef<Snapshot>({
+    tracks: [],
+    queue: [],
+    playlists: [],
+    viewId: 'all',
+    currentId: null,
+    repeat,
+    shuffle,
+    transition,
+    normalize,
+    hydrated: false,
+  })
 
   const queue = useMemo(() => {
     if (viewId === 'all') return tracks
     const pl = playlists.find((p) => p.id === viewId)
     if (!pl) return tracks
     const byId = new Map(tracks.map((t) => [t.id, t]))
-    return pl.trackIds.map((id) => byId.get(id)).filter(Boolean)
+    return pl.trackIds.flatMap((id) => {
+      const t = byId.get(id)
+      return t ? [t] : []
+    })
   }, [tracks, playlists, viewId])
 
   state.current = { ...state.current, tracks, queue, playlists, viewId, currentId: state.current.currentId ?? currentId, repeat, shuffle, transition, normalize, hydrated }
@@ -65,14 +109,14 @@ export function usePlayer() {
 
   const getEl = useCallback(() => engine.decks[active.current].el, [engine])
 
-  const notify = useCallback((msg) => {
+  const notify = useCallback((msg: string) => {
     setNotice(msg)
     clearTimeout(noticeTimer.current)
     noticeTimer.current = setTimeout(() => setNotice(''), 4500)
   }, [])
 
   const startPlay = useCallback(
-    (el) => {
+    (el: HTMLAudioElement) => {
       engine.init()
       return el.play().catch(() => setPlaying(false))
     },
@@ -81,10 +125,10 @@ export function usePlayer() {
 
   const cancelTransition = useCallback(() => {
     const x = xfade.current
-    clearTimeout(x.timer)
+    if (x.timer) clearTimeout(x.timer)
     x.timer = null
     x.pending = null
-    const other = 1 - active.current
+    const other = otherDeck(active.current)
     if (x.active || !engine.decks[other].el.paused) engine.decks[other].el.pause()
     x.active = false
     if (engine.ctx) {
@@ -95,7 +139,7 @@ export function usePlayer() {
 
   /** Set the loudness-normalization gain for the track sitting on a deck (estimating it once if unknown). */
   const applyNorm = useCallback(
-    (deckIdx, track) => {
+    (deckIdx: DeckIndex, track: Track | null | undefined) => {
       if (!track) return
       if (!state.current.normalize) {
         engine.setNorm(deckIdx, 1)
@@ -116,7 +160,7 @@ export function usePlayer() {
   )
 
   const load = useCallback(
-    (track, autoplay = true) => {
+    (track: Track | null | undefined, autoplay = true) => {
       if (!track) return
       cancelTransition()
       const el = getEl()
@@ -131,37 +175,37 @@ export function usePlayer() {
     [applyNorm, cancelTransition, getEl, startPlay],
   )
 
-  const pickNext = useCallback((dir, auto) => {
+  const pickNext = useCallback((dir: 1 | -1, auto: boolean): Track | null => {
     const { queue: list, currentId: id, repeat: rep, shuffle: shuf } = state.current
     if (!list.length) return null
     const idx = list.findIndex((t) => t.id === id)
     if (dir < 0) {
       if (history.current.length && shuf) {
         const prevId = history.current.pop()
-        return list.find((t) => t.id === prevId) || list[0]
+        return list.find((t) => t.id === prevId) || list[0] || null
       }
-      return list[(idx - 1 + list.length) % list.length]
+      return list[(idx - 1 + list.length) % list.length] ?? null
     }
     if (shuf && list.length > 1) {
-      let n
-      do n = list[Math.floor(Math.random() * list.length)]
-      while (n.id === id)
+      let n = list[Math.floor(Math.random() * list.length)]
+      while (!n || n.id === id) n = list[Math.floor(Math.random() * list.length)]
       return n
     }
-    if (idx === list.length - 1) return auto && rep !== 'all' ? null : list[0]
-    return list[idx + 1]
+    if (idx === list.length - 1) return auto && rep !== 'all' ? null : (list[0] ?? null)
+    return list[idx + 1] ?? null
   }, [])
 
   /** Start the next track on the idle deck (overlapping for crossfade, immediate for gapless). */
   const beginTransition = useCallback(
-    (mode) => {
+    (mode: 'crossfade' | 'gapless') => {
       const x = xfade.current
       if (x.active) return
       const s = state.current
-      const nextT = (x.pending && s.queue.find((t) => t.id === x.pending.id)) || pickNext(1, true)
+      const pend = x.pending
+      const nextT = (pend && s.queue.find((t) => t.id === pend.id)) || pickNext(1, true)
       if (!nextT) return
       const cur = active.current
-      const nxt = 1 - cur
+      const nxt = otherDeck(cur)
       const outEl = engine.decks[cur].el
       const inEl = engine.decks[nxt].el
       const hasCtx = engine.init()
@@ -223,7 +267,7 @@ export function usePlayer() {
   }, [getEl, load, pickNext])
 
   const play = useCallback(
-    (id) => {
+    (id: string) => {
       const t = state.current.tracks.find((x) => x.id === id)
       if (!t) return
       if (id === state.current.currentId) {
@@ -248,7 +292,7 @@ export function usePlayer() {
   }, [getEl, load, startPlay])
 
   const seek = useCallback(
-    (t) => {
+    (t: number) => {
       const el = getEl()
       if (!Number.isFinite(el.duration)) return
       el.currentTime = clamp(t, 0, el.duration)
@@ -256,14 +300,14 @@ export function usePlayer() {
     },
     [getEl],
   )
-  const seekBy = useCallback((d) => seek(getEl().currentTime + d), [getEl, seek])
+  const seekBy = useCallback((d: number) => seek(getEl().currentTime + d), [getEl, seek])
 
-  const setVolume = useCallback((v) => {
+  const setVolume = useCallback((v: number) => {
     const nv = clamp(v, 0, 1)
     setVolumeState(nv)
     setMuted(nv === 0)
   }, [])
-  const volumeBy = useCallback((d) => {
+  const volumeBy = useCallback((d: number) => {
     setVolumeState((v) => clamp(Math.round((v + d) * 100) / 100, 0, 1))
     setMuted(false)
   }, [])
@@ -276,14 +320,14 @@ export function usePlayer() {
   const toggleShuffle = useCallback(() => setShuffle((s) => !s), [])
 
   // ---- lyrics ----
-  const updateLyrics = useCallback((id, lyrics) => {
+  const updateLyrics = useCallback((id: string, lyrics: Lyrics | null) => {
     setTracks((l) => l.map((t) => (t.id === id ? { ...t, lyrics } : t)))
     const t = state.current.tracks.find((x) => x.id === id)
     if (t) db.putTracks([{ ...t, lyrics }]).catch(() => {})
   }, [])
 
   const attachLrc = useCallback(
-    async (file) => {
+    async (file: Blob) => {
       const id = state.current.currentId
       const lyr = await lrcFromFile(file)
       if (!lyr) return notify('Could not read lyrics from that file')
@@ -296,19 +340,20 @@ export function usePlayer() {
 
   // ---- library ----
   const addFiles = useCallback(
-    async (fileList) => {
+    async (fileList: Iterable<File> | ArrayLike<File>) => {
       setLoading(true)
       try {
         const existing = new Set(state.current.tracks.map((t) => t.key))
         const { tracks: added, orphanLrc } = await filesToTracks(fileList, existing)
-        if (added.length) {
+        const first = added[0]
+        if (first) {
           const wasEmpty = state.current.tracks.length === 0
           state.current.tracks = [...state.current.tracks, ...added]
           setTracks((l) => [...l, ...added])
           setViewId('all')
           db.putTracks(added).catch(() => notify('Could not save to the offline library (storage blocked or full)'))
           navigator.storage?.persist?.().catch?.(() => {})
-          if (wasEmpty && !state.current.currentId) load(added[0], false)
+          if (wasEmpty && !state.current.currentId) load(first, false)
         }
         for (const o of orphanLrc) {
           const n = norm(o.name)
@@ -327,7 +372,7 @@ export function usePlayer() {
   )
 
   const remove = useCallback(
-    (id) => {
+    (id: string) => {
       const s = state.current
       if (s.viewId !== 'all') {
         setPlaylists((l) => l.map((p) => (p.id === s.viewId ? { ...p, trackIds: p.trackIds.filter((x) => x !== id) } : p)))
@@ -338,7 +383,7 @@ export function usePlayer() {
       if (!t) return
       if (id === s.currentId) {
         const el = getEl()
-        const n = list.length > 1 ? list[(list.indexOf(t) + 1) % list.length] : null
+        const n = list.length > 1 ? (list[(list.indexOf(t) + 1) % list.length] ?? null) : null
         if (n) load(n, !el.paused)
         else {
           cancelTransition()
@@ -379,11 +424,13 @@ export function usePlayer() {
     db.setMeta('resume', null).catch(() => {})
   }, [cancelTransition, engine])
 
-  const reorder = useCallback((from, to) => {
-    const mv = (arr) => {
+  const reorder = useCallback((from: number, to: number) => {
+    const mv = <T,>(arr: T[]): T[] => {
       if (from === to || from < 0 || to < 0 || from >= arr.length || to >= arr.length) return arr
       const c = arr.slice()
-      c.splice(to, 0, c.splice(from, 1)[0])
+      const [item] = c.splice(from, 1)
+      if (item === undefined) return arr
+      c.splice(to, 0, item)
       return c
     }
     const vid = state.current.viewId
@@ -392,26 +439,29 @@ export function usePlayer() {
   }, [])
 
   // ---- playlists ----
-  const createPlaylist = useCallback((name, trackIds = []) => {
+  const createPlaylist = useCallback((name?: string, trackIds: string[] = []) => {
     const id = `pl${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
     setPlaylists((l) => [...l, { id, name: (name || '').trim() || 'New playlist', trackIds }])
     return id
   }, [])
-  const addToPlaylist = useCallback((plId, trackId) => {
+  const addToPlaylist = useCallback((plId: string, trackId: string) => {
     setPlaylists((l) => l.map((p) => (p.id === plId && !p.trackIds.includes(trackId) ? { ...p, trackIds: [...p.trackIds, trackId] } : p)))
   }, [])
-  const deletePlaylist = useCallback((id) => {
+  const deletePlaylist = useCallback((id: string) => {
     setPlaylists((l) => l.filter((p) => p.id !== id))
     setViewId((v) => (v === id ? 'all' : v))
   }, [])
 
   // ---- equalizer ----
-  const setEqBand = useCallback((i, v) => setEq((l) => l.map((x, k) => (k === i ? v : x))), [])
-  const applyPreset = useCallback((name) => EQ_PRESETS[name] && setEq(EQ_PRESETS[name].slice()), [])
+  const setEqBand = useCallback((i: number, v: number) => setEq((l) => l.map((x, k) => (k === i ? v : x))), [])
+  const applyPreset = useCallback((name: string) => {
+    const preset = EQ_PRESETS[name]
+    if (preset) setEq(preset.slice())
+  }, [])
 
   // ---- sleep timer ----
   const setSleep = useCallback(
-    (min) => {
+    (min: number | null) => {
       sleep.current = { end: min ? Date.now() + min * 60000 : 0, fading: false }
       engine.restoreMaster()
       setSleepLeft(min ? min * 60 : null)
@@ -458,14 +508,21 @@ export function usePlayer() {
         if (!alive) return
         const ids = Array.isArray(order) ? order : []
         const byId = new Map(rows.map((r) => [r.id, r]))
-        const ordered = [...ids.map((i) => byId.get(i)).filter(Boolean), ...rows.filter((r) => !ids.includes(r.id))]
-        if (ordered.length) {
-          const restored = ordered.map(buildTrack)
+        const ordered = [
+          ...ids.flatMap((i) => {
+            const r = byId.get(i)
+            return r ? [r] : []
+          }),
+          ...rows.filter((r) => !ids.includes(r.id)),
+        ]
+        const restored = ordered.map((rec) => buildTrack(rec))
+        const first = restored[0]
+        if (first) {
           state.current.tracks = [...restored, ...state.current.tracks]
           setTracks((l) => [...restored, ...l])
           if (!state.current.currentId) {
-            const start = restored.find((t) => t.id === resume?.id) || restored[0]
-            if (resume?.id === start.id && resume.time > 1) pendingSeek.current = resume.time
+            const start = restored.find((t) => t.id === resume?.id) || first
+            if (resume && resume.id === start.id && resume.time > 1) pendingSeek.current = resume.time
             load(start, false)
           }
         }
@@ -505,8 +562,9 @@ export function usePlayer() {
     }
   }, [playing, saveResume])
   useEffect(() => {
+    const settings: Settings = { volume, muted, repeat, shuffle, transition, eq, eqOn, speed, preservePitch, normalize }
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ volume, muted, repeat, shuffle, transition, eq, eqOn, speed, preservePitch, normalize }))
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
     } catch {
       /* ignore */
     }
@@ -519,10 +577,10 @@ export function usePlayer() {
 
   // ---- audio element events (both decks; only the active one drives the UI) ----
   useEffect(() => {
-    const isActive = (e) => e.target === getEl()
-    const onTime = (e) => {
+    const isActive = (e: Event) => e.target === getEl()
+    const onTime = (e: Event) => {
       if (!isActive(e)) return
-      const el = e.target
+      const el = getEl()
       setTime(el.currentTime)
       const s = state.current
       const mode = s.transition
@@ -534,12 +592,13 @@ export function usePlayer() {
         const n = pickNext(1, true)
         if (n) {
           x.pending = n
-          const o = engine.decks[1 - active.current].el
+          const idle = otherDeck(active.current)
+          const o = engine.decks[idle].el
           if (o.getAttribute('src') !== n.url) {
             o.src = n.url
             o.load()
           }
-          applyNorm(1 - active.current, n) // pre-compute the next track's gain while the current one plays
+          applyNorm(idle, n) // pre-compute the next track's gain while the current one plays
         }
       }
       const lead = mode === 'crossfade' ? Math.min(XFADE_SECS, el.duration / 2) : 0.4
@@ -553,9 +612,9 @@ export function usePlayer() {
         }
       }
     }
-    const onMeta = (e) => {
+    const onMeta = (e: Event) => {
       if (!isActive(e)) return
-      const el = e.target
+      const el = getEl()
       const d = el.duration
       setDuration(Number.isFinite(d) ? d : 0)
       if (pendingSeek.current != null && Number.isFinite(d)) {
@@ -566,21 +625,24 @@ export function usePlayer() {
       const id = state.current.currentId
       if (id && Number.isFinite(d)) setTracks((l) => l.map((t) => (t.id === id && !t.duration ? { ...t, duration: d } : t)))
     }
-    const onPlay = (e) => isActive(e) && setPlaying(true)
-    const onPause = (e) => {
+    const onPlay = (e: Event) => {
+      if (isActive(e)) setPlaying(true)
+    }
+    const onPause = (e: Event) => {
       if (!isActive(e)) return
       setPlaying(false)
       saveResume()
     }
-    const onEnd = (e) => {
+    const onEnd = (e: Event) => {
       if (!isActive(e)) return
       if (state.current.repeat === 'one') {
-        e.target.currentTime = 0
-        startPlay(e.target)
+        const el = getEl()
+        el.currentTime = 0
+        startPlay(el)
       } else next(true)
     }
-    const onErr = (e) => {
-      if (isActive(e) && e.target.getAttribute('src')) next(true)
+    const onErr = (e: Event) => {
+      if (isActive(e) && getEl().getAttribute('src')) next(true)
     }
     const bound = engine.decks.map((d) => {
       const el = d.el
@@ -626,11 +688,12 @@ export function usePlayer() {
   // defaultPlaybackRate survives the media load algorithm that runs on every src change
   useEffect(() => {
     engine.decks.forEach((d) => {
-      d.el.defaultPlaybackRate = speed
-      d.el.playbackRate = speed
-      d.el.preservesPitch = preservePitch
-      d.el.mozPreservesPitch = preservePitch
-      d.el.webkitPreservesPitch = preservePitch
+      const el: PitchAudio = d.el
+      el.defaultPlaybackRate = speed
+      el.playbackRate = speed
+      el.preservesPitch = preservePitch
+      el.mozPreservesPitch = preservePitch
+      el.webkitPreservesPitch = preservePitch
     })
   }, [engine, speed, preservePitch])
 
@@ -668,22 +731,24 @@ export function usePlayer() {
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
     const ms = navigator.mediaSession
-    const set = (action, fn) => {
+    const set = (action: MediaSessionAction, fn: MediaSessionActionHandler) => {
       try {
         ms.setActionHandler(action, fn)
       } catch {
         /* action unsupported on this platform */
       }
     }
-    set('play', () => startPlay(getEl()))
+    set('play', () => {
+      startPlay(getEl())
+    })
     set('pause', () => getEl().pause())
     set('stop', () => getEl().pause())
-    set('previoustrack', prev)
+    set('previoustrack', () => prev())
     set('nexttrack', () => next(false))
-    set('seekbackward', (d) => seekBy(-(d?.seekOffset || 10)))
-    set('seekforward', (d) => seekBy(d?.seekOffset || 10))
+    set('seekbackward', (d) => seekBy(-(d.seekOffset || 10)))
+    set('seekforward', (d) => seekBy(d.seekOffset || 10))
     set('seekto', (d) => {
-      if (d?.seekTime != null) seek(d.seekTime)
+      if (d.seekTime != null) seek(d.seekTime)
     })
   }, [getEl, startPlay, prev, next, seek, seekBy])
 
