@@ -24,7 +24,8 @@ and pushes to `main` (which also triggers the Android APK build).
 
 ## Next up (in rough priority order)
 - [x] Virtualized track lists so libraries of 10,000+ songs scroll smoothly (windowing, no extra deps if practical)
-- [ ] ReplayGain / loudness normalization (read ReplayGain tags, fall back to computed RMS/LUFS estimate, toggle in Sound panel)
+- [x] ReplayGain / loudness normalization (computed RMS estimate with peak limiting, toggle in Sound panel; reading ReplayGain tags is a follow-up)
+- [ ] Read ReplayGain tags (TXXX REPLAYGAIN_TRACK_GAIN) and prefer them over the computed estimate
 - [x] Pitch and speed control (playbackRate with preservesPitch toggle, 0.5x-2x, reset button)
 - [ ] Custom themes and accent colors (CSS variables, presets + custom picker, persisted)
 - [ ] Tag editor: edit and save ID3 title/artist/album/cover (write tags into a downloaded copy or back to the stored blob)
@@ -48,3 +49,4 @@ and pushes to `main` (which also triggers the Android APK build).
 - Initial roadmap created.
 - Added speed (0.5x-2x) and keep-pitch toggle to Sound panel, persisted locally.
 - Virtualized the library track list (fixed-height windowing with overscan, no new deps).
+- Added opt-in volume normalization: per-track loudness measured locally on first play, cached in IndexedDB, applied via a per-deck gain node (also works with crossfade).

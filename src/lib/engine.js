@@ -27,6 +27,17 @@ export class AudioEngine {
     this.master = null
     this.eq = new Array(EQ_FREQS.length).fill(0)
     this.eqOn = true
+    this.normLin = [1, 1] // linear normalization gain per deck, applied when the graph exists
+  }
+
+  /** Set a deck's loudness-normalization gain (linear). Safe to call before init(). */
+  setNorm(deckIdx, lin) {
+    this.normLin[deckIdx] = lin
+    const g = this.decks[deckIdx].norm?.gain
+    if (!g) return
+    const t = this.ctx.currentTime
+    g.cancelScheduledValues(t)
+    g.setValueAtTime(lin, t)
   }
 
   /** Build the audio graph. Must be called from a user gesture the first time (autoplay policy). */
@@ -54,10 +65,13 @@ export class AudioEngine {
       filters[filters.length - 1].connect(analyser)
       analyser.connect(master)
       master.connect(ctx.destination)
-      this.decks.forEach((d) => {
+      this.decks.forEach((d, i) => {
         d.node = ctx.createMediaElementSource(d.el)
-        d.gain = ctx.createGain()
-        d.node.connect(d.gain)
+        d.norm = ctx.createGain() // per-track loudness normalization
+        d.norm.gain.value = this.normLin[i]
+        d.gain = ctx.createGain() // crossfade
+        d.node.connect(d.norm)
+        d.norm.connect(d.gain)
         d.gain.connect(filters[0])
       })
       this.ctx = ctx

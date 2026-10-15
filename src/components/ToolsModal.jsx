@@ -1,4 +1,4 @@
-import { Moon, Gauge, Shuffle as Blend, SlidersHorizontal, X } from 'lucide-react'
+import { Moon, Gauge, Shuffle as Blend, SlidersHorizontal, Volume2, X } from 'lucide-react'
 import { EQ_LABELS, EQ_MAX_DB, EQ_PRESETS } from '../lib/engine'
 
 const TIMERS = [15, 30, 45, 60]
@@ -149,6 +149,27 @@ export default function ToolsModal({ p, open, onClose }) {
             ))}
           </div>
           <p className="mt-2 text-xs text-zinc-500">{mode[2]}</p>
+        </section>
+
+        <section aria-label="Volume normalization" className="mt-6">
+          <label className="flex items-center justify-between">
+            <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
+              <Volume2 size={15} /> Normalize volume
+            </h3>
+            <button
+              role="switch"
+              aria-checked={p.normalize}
+              onClick={() => p.setNormalize(!p.normalize)}
+              className={`relative h-7 w-12 rounded-full transition ${p.normalize ? 'bg-accent' : 'bg-white/15'}`}
+              aria-label="Normalize volume between tracks"
+            >
+              <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${p.normalize ? 'left-6' : 'left-1'}`} />
+            </button>
+          </label>
+          <p className="mt-2 text-xs text-zinc-500">
+            Evens out loud and quiet tracks. Loudness is measured on your device the first time a track plays, then remembered
+            {p.current?.gainDb != null && p.normalize ? ` (this track: ${p.current.gainDb > 0 ? '+' : ''}${p.current.gainDb} dB).` : '.'}
+          </p>
         </section>
       </div>
     </div>

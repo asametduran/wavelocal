@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AudioEngine, EQ_PRESETS } from '../lib/engine'
 import * as db from '../lib/db'
+import { estimateGainDb } from '../lib/loudness'
 import { buildTrack, filesToTracks, lrcFromFile, norm, revokeTrack } from '../lib/metadata'
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v))
@@ -37,6 +38,7 @@ export function usePlayer() {
   const [eqOn, setEqOn] = useState(saved.eqOn ?? true)
   const [speed, setSpeedState] = useState(clamp(saved.speed ?? 1, 0.5, 2))
   const [preservePitch, setPreservePitch] = useState(saved.preservePitch ?? true)
+  const [normalize, setNormalize] = useState(saved.normalize ?? false)
   const [sleepLeft, setSleepLeft] = useState(null)
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
@@ -58,7 +60,7 @@ export function usePlayer() {
     return pl.trackIds.map((id) => byId.get(id)).filter(Boolean)
   }, [tracks, playlists, viewId])
 
-  state.current = { ...state.current, tracks, queue, playlists, viewId, currentId: state.current.currentId ?? currentId, repeat, shuffle, transition, hydrated }
+  state.current = { ...state.current, tracks, queue, playlists, viewId, currentId: state.current.currentId ?? currentId, repeat, shuffle, transition, normalize, hydrated }
   const current = useMemo(() => tracks.find((t) => t.id === currentId) || null, [tracks, currentId])
 
   const getEl = useCallback(() => engine.decks[active.current].el, [engine])
@@ -91,19 +93,42 @@ export function usePlayer() {
     }
   }, [engine])
 
+  /** Set the loudness-normalization gain for the track sitting on a deck (estimating it once if unknown). */
+  const applyNorm = useCallback(
+    (deckIdx, track) => {
+      if (!track) return
+      if (!state.current.normalize) {
+        engine.setNorm(deckIdx, 1)
+        return
+      }
+      if (track.gainDb != null) {
+        engine.setNorm(deckIdx, 10 ** (track.gainDb / 20))
+        return
+      }
+      estimateGainDb(track.file).then((g) => {
+        setTracks((l) => l.map((t) => (t.id === track.id ? { ...t, gainDb: g } : t)))
+        const latest = state.current.tracks.find((t) => t.id === track.id) || track
+        db.putTracks([{ ...latest, gainDb: g }]).catch(() => {})
+        if (state.current.normalize && engine.decks[deckIdx].el.getAttribute('src') === track.url) engine.setNorm(deckIdx, 10 ** (g / 20))
+      })
+    },
+    [engine],
+  )
+
   const load = useCallback(
     (track, autoplay = true) => {
       if (!track) return
       cancelTransition()
       const el = getEl()
       el.src = track.url
+      applyNorm(active.current, track)
       state.current.currentId = track.id
       setCurrentId(track.id)
       setTime(0)
       setDuration(track.duration || 0)
       if (autoplay) startPlay(el)
     },
-    [cancelTransition, getEl, startPlay],
+    [applyNorm, cancelTransition, getEl, startPlay],
   )
 
   const pickNext = useCallback((dir, auto) => {
@@ -142,6 +167,7 @@ export function usePlayer() {
       const hasCtx = engine.init()
       const secs = mode === 'crossfade' && hasCtx ? clamp((outEl.duration || 0) / 2, 1, XFADE_SECS) : 0
       if (inEl.getAttribute('src') !== nextT.url) inEl.src = nextT.url
+      applyNorm(nxt, nextT)
       inEl.currentTime = 0
       if (hasCtx) engine.setGain(nxt, secs ? 0 : 1)
       inEl.play().catch(() => {})
@@ -167,7 +193,7 @@ export function usePlayer() {
         (secs || 0.05) * 1000 + 150,
       )
     },
-    [engine, pickNext],
+    [engine, pickNext, applyNorm],
   )
 
   const next = useCallback(
@@ -480,11 +506,11 @@ export function usePlayer() {
   }, [playing, saveResume])
   useEffect(() => {
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ volume, muted, repeat, shuffle, transition, eq, eqOn, speed, preservePitch }))
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ volume, muted, repeat, shuffle, transition, eq, eqOn, speed, preservePitch, normalize }))
     } catch {
       /* ignore */
     }
-  }, [volume, muted, repeat, shuffle, transition, eq, eqOn, speed, preservePitch])
+  }, [volume, muted, repeat, shuffle, transition, eq, eqOn, speed, preservePitch, normalize])
 
   // a changed queue invalidates any preloaded "next" pick
   useEffect(() => {
@@ -513,6 +539,7 @@ export function usePlayer() {
             o.src = n.url
             o.load()
           }
+          applyNorm(1 - active.current, n) // pre-compute the next track's gain while the current one plays
         }
       }
       const lead = mode === 'crossfade' ? Math.min(XFADE_SECS, el.duration / 2) : 0.4
@@ -577,7 +604,17 @@ export function usePlayer() {
         el.removeEventListener('error', onErr)
       })
     }
-  }, [engine, getEl, next, pickNext, beginTransition, saveResume, startPlay])
+  }, [engine, getEl, next, pickNext, beginTransition, saveResume, startPlay, applyNorm])
+
+  // toggling normalization re-applies (or clears) the gain on the active deck
+  useEffect(() => {
+    if (!normalize) {
+      engine.setNorm(0, 1)
+      engine.setNorm(1, 1)
+      return
+    }
+    applyNorm(active.current, state.current.tracks.find((t) => t.id === state.current.currentId))
+  }, [engine, normalize, applyNorm])
 
   useEffect(() => {
     engine.decks.forEach((d) => {
@@ -663,7 +700,7 @@ export function usePlayer() {
 
   return {
     engine, tracks, queue, playlists, viewId, setViewId, current, currentId, playing, time, duration, volume, muted,
-    repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, eq, eqOn, setEqOn, setEqBand, applyPreset, sleepLeft, setSleep,
+    repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, normalize, setNormalize, eq, eqOn, setEqOn, setEqBand, applyPreset, sleepLeft, setSleep,
     loading, notice, hydrated,
     play, toggle, next: () => next(false), prev, seek, seekBy, setVolume, volumeBy, toggleMute,
     cycleRepeat, toggleShuffle, addFiles, attachLrc, remove, clear, reorder,

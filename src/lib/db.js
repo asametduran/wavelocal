@@ -45,6 +45,7 @@ export const toRecord = (t) => ({
   album: t.album,
   duration: t.duration || 0,
   lyrics: t.lyrics || null,
+  gainDb: t.gainDb ?? null,
 })
 
 export const putTracks = (tracks) =>

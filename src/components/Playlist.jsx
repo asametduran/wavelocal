@@ -31,7 +31,7 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
   useEffect(() => {
     const el = listRef.current
     if (!el) return
-    const measure = () => setViewH(el.clientHeight)
+    const measure = () => el.clientHeight > 0 && setViewH(el.clientHeight) // a hidden list reports 0: keep the default
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
@@ -137,7 +137,10 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
         </label>
       </div>
 
-      <ul ref={listRef} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      <ul ref={listRef} onScroll={(e) => {
+          setScrollTop(e.currentTarget.scrollTop)
+          if (e.currentTarget.clientHeight > 0) setViewH(e.currentTarget.clientHeight)
+        }} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {start > 0 && <li aria-hidden="true" style={{ height: start * ROW_H }} />}
         {visible.map(({ t, index }) => {
           const active = t.id === p.currentId
