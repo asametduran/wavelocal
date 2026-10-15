@@ -1,19 +1,27 @@
 import jsmediatags from 'jsmediatags/dist/jsmediatags.min.js'
+import type { Picture, Tags, TxxxFrame, TxxxPayload } from 'jsmediatags/dist/jsmediatags.min.js'
+import type { Lyrics, Track, TrackRecord } from '../types'
 import { parseLrc } from './lrc'
 
 const AUDIO_EXT = /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|weba)$/i
 const LRC_EXT = /\.lrc$/i
 
-export const isAudioFile = (f) => f.type.startsWith('audio/') || AUDIO_EXT.test(f.name)
-export const isLrcFile = (f) => LRC_EXT.test(f.name)
+/** An `.lrc` file that parsed but matched no imported audio file. */
+export interface OrphanLrc {
+  name: string
+  lyrics: Lyrics
+}
 
-const stripExt = (n) => n.replace(/\.[^.]+$/, '')
+export const isAudioFile = (f: File): boolean => f.type.startsWith('audio/') || AUDIO_EXT.test(f.name)
+export const isLrcFile = (f: File): boolean => LRC_EXT.test(f.name)
+
+const stripExt = (n: string): string => n.replace(/\.[^.]+$/, '')
 /** Normalised name used to pair "Song.mp3" with "song.lrc". */
-export const norm = (n) => stripExt(n).trim().toLowerCase()
-export const fileKey = (f) => `${f.name}|${f.size}|${f.lastModified}`
-const newId = () => `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+export const norm = (n: string): string => stripExt(n).trim().toLowerCase()
+export const fileKey = (f: File): string => `${f.name}|${f.size}|${f.lastModified}`
+const newId = (): string => `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
 
-function readTags(file) {
+function readTags(file: File): Promise<Tags> {
   return new Promise((resolve) => {
     try {
       jsmediatags.read(file, { onSuccess: (r) => resolve(r.tags || {}), onError: () => resolve({}) })
@@ -23,18 +31,24 @@ function readTags(file) {
   })
 }
 
-function pictureBlob(picture) {
+function pictureBlob(picture: Picture | undefined): Blob | null {
   if (!picture?.data?.length) return null
-  return new Blob([new Uint8Array(picture.data)], { type: picture.format || 'image/jpeg' })
+  return new Blob([Uint8Array.from(picture.data)], { type: picture.format || 'image/jpeg' })
+}
+
+/** Unwrap a TXXX frame to its `{ user_description, data }` payload. */
+function txxxPayload(frame: TxxxFrame): TxxxPayload {
+  const inner = frame.data
+  return inner !== null && typeof inner === 'object' ? inner : (frame as TxxxPayload)
 }
 
 /** ReplayGain track (or album) gain in dB from ID3v2 TXXX frames, or null when absent/invalid. */
-export function replayGainDb(tags) {
+export function replayGainDb(tags: Tags | null | undefined): number | null {
   const raw = tags?.TXXX
-  const frames = (Array.isArray(raw) ? raw : [raw]).filter(Boolean)
-  const found = {}
+  const frames = (Array.isArray(raw) ? raw : [raw]).filter((f): f is TxxxFrame => Boolean(f))
+  const found: Record<string, string> = {}
   for (const f of frames) {
-    const d = f.data || f
+    const d = txxxPayload(f)
     const name = String(d.user_description || '').trim().toLowerCase().replace(/\0/g, '')
     if (name === 'replaygain_track_gain' || name === 'replaygain_album_gain') found[name] = String(d.data || '')
   }
@@ -45,7 +59,7 @@ export function replayGainDb(tags) {
 }
 
 /** Add object URLs to a persisted/new record so the audio element and <img> can use it. */
-export function buildTrack(rec) {
+export function buildTrack(rec: TrackRecord): Track {
   return {
     ...rec,
     url: URL.createObjectURL(rec.file),
@@ -53,7 +67,7 @@ export function buildTrack(rec) {
   }
 }
 
-export async function lrcFromFile(file) {
+export async function lrcFromFile(file: Blob): Promise<Lyrics | null> {
   try {
     return parseLrc(await file.text())
   } catch {
@@ -61,11 +75,11 @@ export async function lrcFromFile(file) {
   }
 }
 
-async function fileToTrack(file, lrcMap) {
+async function fileToTrack(file: File, lrcMap: ReadonlyMap<string, Lyrics>): Promise<Track> {
   const tags = await readTags(file)
   const title = (tags.title || '').trim() || stripExt(file.name)
   const artist = (tags.artist || '').trim() || 'Unknown Artist'
-  const embedded = tags.lyrics?.lyrics ?? (typeof tags.lyrics === 'string' ? tags.lyrics : '')
+  const embedded = typeof tags.lyrics === 'string' ? tags.lyrics : (tags.lyrics?.lyrics ?? '')
   const lyrics =
     lrcMap.get(norm(file.name)) || lrcMap.get(title.toLowerCase()) || lrcMap.get(`${artist} - ${title}`.toLowerCase()) || parseLrc(embedded) || null
   return buildTrack({
@@ -86,13 +100,16 @@ async function fileToTrack(file, lrcMap) {
  * Turn picked/dropped files into tracks. `.lrc` files are paired by name (or title) with audio files.
  * Returns the new tracks plus any `.lrc` files that matched nothing (so the caller can attach them to existing tracks).
  */
-export async function filesToTracks(fileList, existingKeys = new Set()) {
+export async function filesToTracks(
+  fileList: Iterable<File> | ArrayLike<File>,
+  existingKeys: ReadonlySet<string> = new Set(),
+): Promise<{ tracks: Track[]; orphanLrc: OrphanLrc[] }> {
   const all = Array.from(fileList)
   const audio = all.filter(isAudioFile).filter((f) => !existingKeys.has(fileKey(f)))
   audio.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
 
-  const lrcMap = new Map()
-  const lrcFiles = []
+  const lrcMap = new Map<string, Lyrics>()
+  const lrcFiles: OrphanLrc[] = []
   for (const f of all.filter(isLrcFile)) {
     const lyrics = await lrcFromFile(f)
     if (lyrics) lrcFiles.push({ name: f.name, lyrics })
@@ -100,12 +117,12 @@ export async function filesToTracks(fileList, existingKeys = new Set()) {
   lrcFiles.forEach((l) => lrcMap.set(norm(l.name), l.lyrics))
 
   const tracks = await Promise.all(audio.map((f) => fileToTrack(f, lrcMap)))
-  const used = new Set(tracks.filter((t) => t.lyrics).map((t) => t.lyrics))
+  const used = new Set(tracks.flatMap((t) => (t.lyrics ? [t.lyrics] : [])))
   const orphanLrc = lrcFiles.filter((l) => !used.has(l.lyrics))
   return { tracks, orphanLrc }
 }
 
-export function revokeTrack(t) {
+export function revokeTrack(t: Pick<Track, 'url' | 'cover'>): void {
   URL.revokeObjectURL(t.url)
   if (t.cover) URL.revokeObjectURL(t.cover)
 }

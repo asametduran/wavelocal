@@ -17,7 +17,7 @@ one headless Claude Code session after another, and only pauses when the Claude 
 
 ### Pack A - TypeScript migration and strict typechecking
 - [x] A1. Add TypeScript tooling: `typescript`, `@types/react`, `@types/react-dom`, `tsconfig.json` (strict, `allowJs` + `checkJs` off for the transition, `noEmit`), `npm run typecheck`; shared domain types (`Track`, `Playlist`, `Lyrics`, `LyricLine`, `PlayerState`, settings) in `src/types.ts`
-- [ ] A2. Migrate `src/lib/*` (engine, lrc, db, metadata, loudness, format, theme) to `.ts` with precise types, no `any`
+- [x] A2. Migrate `src/lib/*` (engine, lrc, db, metadata, loudness, format, theme) to `.ts` with precise types, no `any`
 - [ ] A3. Migrate `src/hooks/*` (usePlayer, useHotkeys, useTvMode, useSwipe) to `.ts`; type the player API returned by `usePlayer`
 - [ ] A4. Migrate all components and entry points to `.tsx`; typed props everywhere
 - [ ] A5. Turn on full strictness (`strict`, `noUncheckedIndexedAccess`, `noImplicitReturns`), get `npm run typecheck` to zero errors, make `npm run build` run the typecheck first, document in README
@@ -81,3 +81,4 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - Added a keyboard shortcut help overlay opened with `?` (closes with Esc or click outside).
 - Switched to HYPERCODE mode: roadmap reorganised into heavy packs A-D (TypeScript, testing, DSP, desktop).
 - A1: added TypeScript tooling (tsconfig, `npm run typecheck`) and shared domain types in `src/types.ts`.
+- A2: migrated `src/lib/*` to strictly typed TypeScript (no `any`), added jsmediatags typings; theme logic lives in `hooks/useTheme` and migrates with A3.

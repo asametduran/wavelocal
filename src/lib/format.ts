@@ -1,18 +1,19 @@
-export function formatTime(s) {
+/** Format seconds as `m:ss`; invalid or negative input renders as `0:00`. */
+export function formatTime(s: number): string {
   if (!Number.isFinite(s) || s < 0) return '0:00'
   const m = Math.floor(s / 60)
   const sec = Math.floor(s % 60)
   return `${m}:${String(sec).padStart(2, '0')}`
 }
 
-function hash(str) {
+function hash(str: string): number {
   let h = 2166136261
   for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619)
   return h >>> 0
 }
 
 /** Deterministic procedural artwork gradient for tracks with no embedded cover. */
-export function fallbackGradient(seed = '') {
+export function fallbackGradient(seed = ''): string {
   const h = hash(seed)
   const h1 = h % 360
   const h2 = (h1 + 40 + ((h >> 8) % 90)) % 360
