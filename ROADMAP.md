@@ -37,7 +37,7 @@ and pushes to `main` (which also triggers the Android APK build).
 - [ ] WebRTC local LAN music sharing / synced listening (serverless pairing via QR or copy-paste signalling)
 - [ ] Smart playlists (recently added, most played, never played) with play counts stored locally
 - [ ] Import/export library metadata and playlists (JSON) for backup
-- [ ] Keyboard shortcut help overlay (`?`)
+- [x] Keyboard shortcut help overlay (`?`)
 - [ ] Unit tests for lrc.js, metadata pairing and queue logic (vitest)
 
 ## Ideas parking lot
@@ -52,3 +52,4 @@ and pushes to `main` (which also triggers the Android APK build).
 - Added opt-in volume normalization: per-track loudness measured locally on first play, cached in IndexedDB, applied via a per-deck gain node (also works with crossfade).
 - Read ReplayGain track/album gain from ID3v2 TXXX tags at import and use it instead of the computed loudness estimate (clamped to ±12 dB).
 - Added accent color picker (8 presets + custom) in the Sound panel, driven by a CSS variable and persisted locally.
+- Added a keyboard shortcut help overlay opened with `?` (closes with Esc or click outside).

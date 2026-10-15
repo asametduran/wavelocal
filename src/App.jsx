@@ -9,6 +9,7 @@ import NowPlaying from './components/NowPlaying'
 import NowPlayingSheet from './components/NowPlayingSheet'
 import QueueSheet from './components/QueueSheet'
 import ToolsModal from './components/ToolsModal'
+import ShortcutsModal from './components/ShortcutsModal'
 import PlayerBar, { MiniBar } from './components/PlayerBar'
 
 export default function App() {
@@ -22,20 +23,23 @@ export default function App() {
   const [nowOpen, setNowOpen] = useState(false)
   const [queueOpen, setQueueOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
 
   // Back button / remote Back / Escape: close the topmost sheet first.
   const onBack = useCallback(() => {
+    if (helpOpen) return setHelpOpen(false) || true
     if (toolsOpen) return setToolsOpen(false) || true
     if (queueOpen) return setQueueOpen(false) || true
     if (nowOpen) return setNowOpen(false) || true
     return false
-  }, [toolsOpen, queueOpen, nowOpen])
+  }, [helpOpen, toolsOpen, queueOpen, nowOpen])
 
   useHotkeys(p, {
     tv,
     onBack,
     toggleTv: () => setTv((v) => !v),
     openTools: () => setToolsOpen((v) => !v),
+    toggleHelp: () => setHelpOpen((v) => !v),
     focusSearch: () => searchRef.current?.focus(),
   })
 
@@ -125,6 +129,7 @@ export default function App() {
 
       <NowPlayingSheet p={p} open={nowOpen} onClose={() => setNowOpen(false)} onOpenQueue={() => setQueueOpen(true)} onOpenTools={() => setToolsOpen(true)} />
       <QueueSheet p={p} open={queueOpen} onClose={() => setQueueOpen(false)} onPickFiles={pickFiles} onPickFolder={pickFolder} />
+      <ShortcutsModal open={helpOpen} onClose={() => setHelpOpen(false)} />
       <ToolsModal p={p} accent={accent} setAccent={setAccent} open={toolsOpen} onClose={() => setToolsOpen(false)} />
 
       {p.notice && (
