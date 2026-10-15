@@ -1,4 +1,7 @@
 import type { SpatialSettings } from '../types'
+import { clamp, finite } from './dsp'
+
+export { equalPowerMix } from './dsp'
 
 /**
  * Pure geometry for 3D spatial audio. The listener sits at the origin facing -z (the Web Audio default);
@@ -25,9 +28,6 @@ export const DEFAULT_SPATIAL: SpatialSettings = {
 }
 
 const TAU = Math.PI * 2
-
-const finite = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
-const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
 
 export interface Point2 {
   x: number
@@ -118,12 +118,6 @@ export function orbitCurve(opts: {
     z[i] = p.z
   }
   return { x, z }
-}
-
-/** Equal-power crossfade so the loudness stays steady while sweeping from dry (0) to wet (1). */
-export function equalPowerMix(mix: number): { dry: number; wet: number } {
-  const m = clamp(finite(mix, 1), 0, 1)
-  return { dry: Math.cos((m * Math.PI) / 2), wet: Math.sin((m * Math.PI) / 2) }
 }
 
 const SECTORS = ['Front', 'Front right', 'Right', 'Behind right', 'Behind', 'Behind left', 'Left', 'Front left'] as const

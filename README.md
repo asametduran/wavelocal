@@ -22,8 +22,9 @@ A modern dark-mode music player that runs entirely in your browser. Your files a
 
 ## Audiophile toolkit
 
-- **DSP engine** — Web Audio graph: two playback decks → 10-band equalizer (31 Hz–16 kHz, ±12 dB) → 3D spatial stage → analyser → master fade. Presets: Flat, Bass Boost, Vocal, Rock, Acoustic, Electronic, Treble Boost. Press `E` for the Sound & tools panel.
+- **DSP engine** — Web Audio graph: two playback decks → 10-band equalizer (31 Hz–16 kHz, ±12 dB) → 3D spatial stage → reverb → analyser → master fade. Presets: Flat, Bass Boost, Vocal, Rock, Acoustic, Electronic, Treble Boost. Press `E` for the Sound & tools panel.
 - **3D spatial audio** — an HRTF `PannerNode` with a draggable (and keyboard-operable) position pad, distance and equal-power wet/dry controls, and an "8D" auto-rotate mode that circles the sound around your head at an adjustable speed. Best on headphones; off by default and costs nothing while off.
+- **Reverb** — a `ConvolverNode` fed by procedurally generated impulse responses (small room, concert hall, cathedral, plate): each room has its own early reflections and tail colour, and the Decay control is the true RT60 (verified in tests by Schroeder integration). Pre-delay and an equal-power wet/dry mix; no impulse-response files are shipped or downloaded.
 - **Visualizer** — live canvas spectrum bars or waveform on the Now Playing screen (click to switch).
 - **Synced lyrics** — drop `Song.lrc` next to `Song.mp3` (matched by file name) or load one from the Lyrics tab; embedded ID3 lyrics are used too. Karaoke-style auto-scroll, tap a line to seek.
 - **Offline library** — imported tracks, playlists, queue order, lyrics, settings and your last position are stored in IndexedDB, so a refresh or app restart keeps your music. Nothing leaves the device.
@@ -97,6 +98,8 @@ src/
 ├── lib/
 │   ├── engine.ts         Web Audio graph: decks, 10-band EQ, spatial stage, analyser, fades
 │   ├── spatial.ts        pure 3D audio geometry (pad → position, orbit curves, wet/dry law)
+│   ├── reverb.ts         procedural room impulse responses + reverb settings
+│   ├── dsp.ts            shared numeric helpers (clamp, seeded RNG, equal-power mix)
 │   ├── lrc.ts            LRC parser + active-line lookup
 │   ├── db.ts             IndexedDB wrapper (tracks + meta)
 │   ├── metadata.ts       File → track (ID3 tags, cover art, lyrics pairing)

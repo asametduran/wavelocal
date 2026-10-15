@@ -1,5 +1,6 @@
 import { Moon, Gauge, Palette, Shuffle as Blend, SlidersHorizontal, Volume2, X } from 'lucide-react'
 import { ACCENT_PRESETS, DEFAULT_ACCENT } from '../hooks/useTheme'
+import ReverbSection from './ReverbSection'
 import SpatialSection from './SpatialSection'
 import { EQ_LABELS, EQ_MAX_DB, EQ_PRESETS } from '../lib/engine'
 import type { CSSProperties } from 'react'
@@ -90,6 +91,8 @@ export default function ToolsModal({ p, open, onClose, accent, setAccent }: Tool
         </section>
 
         <SpatialSection p={p} />
+
+        <ReverbSection p={p} />
 
         <section aria-label="Speed and pitch" className="mt-6">
           <div className="mb-3 flex items-center justify-between">

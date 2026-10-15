@@ -1,5 +1,7 @@
 /** Deterministic synthetic signal generators and measurements for audio tests. Everything is pure and seedable. */
 
+import { seededRandom } from '../lib/dsp'
+
 export const DEFAULT_SAMPLE_RATE = 44100
 
 interface Base {
@@ -36,17 +38,7 @@ export function silence(base: Base): Float32Array {
   return new Float32Array(frameCount(base))
 }
 
-/** mulberry32: tiny seeded PRNG so "random" fixtures are reproducible. */
-export function seededRandom(seed: number): () => number {
-  let a = seed >>> 0
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
+export { seededRandom }
 
 /** White noise with uniform distribution in [-amplitude, amplitude]. */
 export function whiteNoise({ amplitude = 0.3, seed = 1, ...base }: Base & { amplitude?: number; seed?: number }): Float32Array {

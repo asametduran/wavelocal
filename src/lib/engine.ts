@@ -1,7 +1,8 @@
 /** Web Audio DSP engine: two playback decks -> 10-band EQ -> analyser -> master fade -> speakers. */
-import type { EqGains, SpatialSettings } from '../types'
+import type { EqGains, ReverbSettings, SpatialSettings } from '../types'
 import { DEFAULT_SPATIAL, ORBIT_HORIZON_SECONDS, azimuth, equalPowerMix, orbitAngle, orbitCurve, orbitPosition, orbitRadiusMeters, orbitRadiusPad, padToPosition } from './spatial'
 import type { Point2 } from './spatial'
+import { DEFAULT_REVERB, generateImpulseResponse, impulseKey } from './reverb'
 
 export const EQ_FREQS: readonly number[] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 export const EQ_LABELS: readonly string[] = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '16k']
@@ -39,6 +40,17 @@ interface SpatialNodes {
   routed: boolean
 }
 
+/** Reverb stage: input -> dry -> out, and input -> pre-delay -> convolver -> wet -> out (convolver only fed while enabled). */
+interface ReverbNodes {
+  input: AudioNode
+  preDelay: DelayNode
+  convolver: ConvolverNode
+  dry: GainNode
+  wet: GainNode
+  out: GainNode
+  routed: boolean
+}
+
 /** Anchor of the current orbit: the angle at audio time `t0`, so any later position is a pure function of the clock. */
 interface Orbit {
   active: boolean
@@ -53,6 +65,13 @@ interface Orbit {
 
 const ORBIT_REFRESH_MS = 60_000
 const SPATIAL_OFF_DELAY_MS = 180
+const REVERB_OFF_DELAY_MS = 250
+/** Wait for slider drags to settle before synthesizing a new impulse response. */
+const REVERB_REBUILD_DEBOUNCE_MS = 120
+/** Time the wet signal is muted around an impulse swap so it cannot click. */
+const REVERB_DUCK_MS = 50
+const REVERB_CACHE_SIZE = 6
+const MAX_PRE_DELAY_S = 0.25
 
 /** Cancel pending automation at `t` but keep the value the parameter has reached (works mid-curve). */
 function holdAt(param: AudioParam, t: number): void {
@@ -87,6 +106,14 @@ export class AudioEngine {
   private spatialNodes: SpatialNodes | null = null
   private spatialOffTimer: ReturnType<typeof setTimeout> | null = null
   private orbit: Orbit = { active: false, angle0: 0, t0: 0, seconds: DEFAULT_SPATIAL.orbitSeconds, radiusPad: 1, key: '', timer: null }
+  /** Latest reverb settings; applied to the graph as soon as (and whenever) it exists. */
+  reverb: ReverbSettings = { ...DEFAULT_REVERB }
+  private reverbNodes: ReverbNodes | null = null
+  private reverbKey: string | null = null
+  private reverbTimer: ReturnType<typeof setTimeout> | null = null
+  private reverbOffTimer: ReturnType<typeof setTimeout> | null = null
+  private reverbDucking = false
+  private reverbCache = new Map<string, AudioBuffer>()
 
   constructor() {
     const makeDeck = (): Deck => {
@@ -149,13 +176,15 @@ export class AudioEngine {
         d.norm = norm
         d.gain = gain
       })
-      this.buildSpatial(ctx, last, analyser)
+      const tail = this.buildSpatial(ctx, last)
+      this.buildReverb(ctx, tail, analyser)
       this.ctx = ctx
       this.filters = filters
       this.analyser = analyser
       this.master = master
       this.applyEq(true)
       this.applySpatial()
+      this.applyReverb()
       if (ctx.state !== 'running') ctx.resume().catch(() => {})
       return true
     } catch {
@@ -186,13 +215,12 @@ export class AudioEngine {
 
   // ---- 3D spatial audio ----
 
-  /** Create the dry/wet/panner stage between the EQ and the analyser (or a plain passthrough if unsupported). */
-  private buildSpatial(ctx: AudioContext, input: AudioNode, analyser: AnalyserNode): void {
+  /** Create the dry/wet/panner stage after the EQ and return the node carrying its output (the input itself if unsupported). */
+  private buildSpatial(ctx: AudioContext, input: AudioNode): AudioNode {
     const panner = ctx.createPanner()
     if (!('positionX' in panner)) {
       this.spatialSupported = false
-      input.connect(analyser)
-      return
+      return input
     }
     panner.panningModel = 'HRTF'
     panner.distanceModel = 'inverse'
@@ -205,11 +233,11 @@ export class AudioEngine {
     dry.connect(out)
     panner.connect(wet)
     wet.connect(out)
-    out.connect(analyser)
     dry.gain.value = 1
     wet.gain.value = 0
     this.spatialSupported = true
     this.spatialNodes = { input, panner, dry, wet, out, routed: false }
+    return out
   }
 
   /** Store new settings and apply them to the graph (if it exists yet). */
@@ -340,6 +368,130 @@ export class AudioEngine {
       return { x: o.radiusPad * Math.sin(a), y: -o.radiusPad * Math.cos(a) }
     }
     return { x: s.x, y: s.y }
+  }
+
+  // ---- reverb ----
+
+  /** Create the pre-delay / convolver / dry-wet stage between the spatial stage and the analyser. */
+  private buildReverb(ctx: AudioContext, input: AudioNode, analyser: AnalyserNode): void {
+    const preDelay = ctx.createDelay(MAX_PRE_DELAY_S)
+    const convolver = ctx.createConvolver()
+    convolver.normalize = true // keeps loudness comparable across rooms and decay times (must be set before the buffer)
+    const dry = ctx.createGain()
+    const wet = ctx.createGain()
+    const out = ctx.createGain()
+    input.connect(dry)
+    dry.connect(out)
+    preDelay.connect(convolver)
+    convolver.connect(wet)
+    wet.connect(out)
+    out.connect(analyser)
+    dry.gain.value = 1
+    wet.gain.value = 0
+    this.reverbNodes = { input, preDelay, convolver, dry, wet, out, routed: false }
+  }
+
+  /** Store new settings and apply them to the graph (if it exists yet). */
+  setReverb(next: ReverbSettings): void {
+    this.reverb = next
+    this.applyReverb()
+  }
+
+  private applyReverb(): void {
+    const n = this.reverbNodes
+    const ctx = this.ctx
+    if (!n || !ctx) return
+    const r = this.reverb
+    glideTo(n.preDelay.delayTime, Math.min(MAX_PRE_DELAY_S, r.preDelayMs / 1000), ctx.currentTime, 0.03)
+
+    if (!r.enabled) {
+      this.reverbDucking = false
+      this.applyReverbGains()
+      if (this.reverbTimer !== null) clearTimeout(this.reverbTimer)
+      this.reverbTimer = null
+      // once the wet path has faded, stop feeding (and burning CPU in) the convolver
+      if (this.reverbOffTimer === null && n.routed) {
+        this.reverbOffTimer = setTimeout(() => {
+          this.reverbOffTimer = null
+          const nodes = this.reverbNodes
+          if (this.reverb.enabled || !nodes?.routed) return
+          nodes.input.disconnect(nodes.preDelay)
+          nodes.routed = false
+        }, REVERB_OFF_DELAY_MS)
+      }
+      return
+    }
+
+    if (this.reverbOffTimer !== null) {
+      clearTimeout(this.reverbOffTimer)
+      this.reverbOffTimer = null
+    }
+    if (!n.routed) {
+      n.input.connect(n.preDelay)
+      n.routed = true
+    }
+    this.applyReverbGains()
+    if (impulseKey(r, ctx.sampleRate) !== this.reverbKey) this.requestImpulse(n.convolver.buffer === null)
+  }
+
+  private applyReverbGains(): void {
+    const n = this.reverbNodes
+    const ctx = this.ctx
+    if (!n || !ctx) return
+    const r = this.reverb
+    const { dry, wet } = r.enabled ? equalPowerMix(r.mix) : { dry: 1, wet: 0 }
+    const t = ctx.currentTime
+    glideTo(n.dry.gain, dry, t, 0.03)
+    glideTo(n.wet.gain, this.reverbDucking ? 0 : wet, t, this.reverbDucking ? 0.008 : 0.03)
+  }
+
+  /** Synthesizing an impulse response takes a few milliseconds, so wait out slider drags (but not the very first build). */
+  private requestImpulse(immediate: boolean): void {
+    if (this.reverbTimer !== null) clearTimeout(this.reverbTimer)
+    this.reverbTimer = setTimeout(() => this.swapImpulse(), immediate ? 0 : REVERB_REBUILD_DEBOUNCE_MS)
+  }
+
+  private swapImpulse(): void {
+    this.reverbTimer = null
+    const n = this.reverbNodes
+    const ctx = this.ctx
+    if (!n || !ctx || !this.reverb.enabled) return
+
+    const commit = () => {
+      this.reverbTimer = null
+      this.reverbDucking = false
+      if (!this.reverb.enabled) return
+      const wanted = this.reverb
+      n.convolver.buffer = this.impulseBuffer(wanted, ctx)
+      this.reverbKey = impulseKey(wanted, ctx.sampleRate)
+      this.applyReverbGains()
+    }
+    if (n.convolver.buffer === null) {
+      commit()
+      return
+    }
+    // mute the wet path, swap while it is silent, then bring it back
+    this.reverbDucking = true
+    this.applyReverbGains()
+    this.reverbTimer = setTimeout(commit, REVERB_DUCK_MS)
+  }
+
+  private impulseBuffer(settings: ReverbSettings, ctx: AudioContext): AudioBuffer {
+    const key = impulseKey(settings, ctx.sampleRate)
+    const cached = this.reverbCache.get(key)
+    if (cached) {
+      this.reverbCache.delete(key) // refresh recency
+      this.reverbCache.set(key, cached)
+      return cached
+    }
+    const ir = generateImpulseResponse({ room: settings.room, decay: settings.decay, sampleRate: ctx.sampleRate })
+    const buffer = ctx.createBuffer(2, ir.left.length, ctx.sampleRate)
+    buffer.copyToChannel(ir.left, 0)
+    buffer.copyToChannel(ir.right, 1)
+    this.reverbCache.set(key, buffer)
+    const oldest = this.reverbCache.keys().next().value
+    if (this.reverbCache.size > REVERB_CACHE_SIZE && oldest !== undefined) this.reverbCache.delete(oldest)
+    return buffer
   }
 
   setGain(deckIdx: 0 | 1, value: number): void {

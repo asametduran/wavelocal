@@ -71,6 +71,20 @@ export interface SpatialSettings {
   orbitSeconds: number
 }
 
+/** Room character for the reverb; each has its own early reflections, tail colour and default decay. */
+export type RoomKind = 'small' | 'hall' | 'cathedral' | 'plate'
+
+export interface ReverbSettings {
+  enabled: boolean
+  room: RoomKind
+  /** Seconds for the tail to fall by 60 dB (RT60). */
+  decay: number
+  /** Silence before the reverb starts, in milliseconds. */
+  preDelayMs: number
+  /** 0 = dry .. 1 = reverb only, equal-power crossfade. */
+  mix: number
+}
+
 /** User preferences persisted in localStorage under `wl-settings`. */
 export interface Settings {
   volume: number
@@ -84,6 +98,7 @@ export interface Settings {
   preservePitch: boolean
   normalize: boolean
   spatial: SpatialSettings
+  reverb: ReverbSettings
 }
 
 /** Snapshot of live playback state exposed by the player. */
@@ -142,6 +157,9 @@ export interface PlayerApi {
   spatial: SpatialSettings
   /** Merge a change into the spatial settings (values are clamped/sanitized). */
   setSpatial: (patch: Partial<SpatialSettings>) => void
+  reverb: ReverbSettings
+  /** Merge a change into the reverb settings; picking a different room also loads that room's default decay and pre-delay. */
+  setReverb: (patch: Partial<ReverbSettings>) => void
   /** Seconds left on the sleep timer, or null when it is off. */
   sleepLeft: number | null
   /** Start the sleep timer for `minutes`; 0 or null cancels it. */

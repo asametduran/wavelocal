@@ -30,7 +30,7 @@ one headless Claude Code session after another, and only pauses when the Claude 
 
 ### Pack C - Advanced DSP audio engine
 - [x] C1. 3D spatial audio: `PannerNode` (HRTF) with a position pad UI, auto-rotate "8D" mode, wet/dry and distance controls
-- [ ] C2. Reverb room simulation: `ConvolverNode` with procedurally generated impulse responses (small room, hall, cathedral, plate), pre-delay, decay, wet/dry mix
+- [x] C2. Reverb room simulation: `ConvolverNode` with procedurally generated impulse responses (small room, hall, cathedral, plate), pre-delay, decay, wet/dry mix
 - [ ] C3. Parametric EQ: editable band frequency, Q and gain with draggable response curve, band types (peak, shelf, notch), keep the 10-band graphic EQ as a preset view; save/load custom presets
 - [ ] C4. Dynamics and stereo: compressor/limiter, stereo widener, mono downmix, bass/treble shelves, per-track EQ memory
 - [ ] C5. Lossless decoder fallbacks: robust WAV and FLAC support when the browser cannot play them natively (detect with `canPlayType`; pure-JS or WASM decoder to `AudioBuffer`, streamed playback path); tests with synthetic WAV/FLAC fixtures
@@ -90,3 +90,4 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - B3: added Playwright headless e2e (`npm run test:e2e`, 66 tests in real Chromium) covering import, playback, seek, queue reorder, search, playlists, persistence, lyrics sync, EQ/speed/normalization (asserting the live Web Audio graph), sleep timer and gapless/crossfade.
 - B4: added `.github/workflows/ci.yml` (typecheck + unit + Playwright e2e on every push/PR, Playwright browser cache keyed by version, traces/report uploaded on failure); separate from the APK workflow.
 - C1: added 3D spatial audio (HRTF PannerNode after the EQ, position pad with pointer + keyboard control, distance, equal-power wet/dry, "8D" auto-rotate via scheduled orbit curves); 56 geometry unit tests and 16 e2e tests that read the live panner position.
+- C2: added reverb (ConvolverNode with procedural small room / hall / cathedral / plate impulse responses, pre-delay, decay, equal-power wet/dry, debounced and ducked IR swaps, decay-shape preview); 45 unit tests incl. RT60 by Schroeder integration and 14 e2e tests reading the live convolver.

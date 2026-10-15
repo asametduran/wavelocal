@@ -5,7 +5,8 @@ import { estimateGainDb } from '../lib/loudness'
 import { buildTrack, filesToTracks, lrcFromFile, norm, revokeTrack } from '../lib/metadata'
 import { moveItem, nextRepeat, pickTrack, resolveQueue } from '../lib/queue'
 import { mergeSpatial, normalizeSpatial } from '../lib/spatial'
-import type { EqGains, Lyrics, PlayerApi, Playlist, RepeatMode, Settings, SpatialSettings, Track, TransitionMode } from '../types'
+import { mergeReverb, normalizeReverb } from '../lib/reverb'
+import type { EqGains, Lyrics, PlayerApi, Playlist, RepeatMode, ReverbSettings, Settings, SpatialSettings, Track, TransitionMode } from '../types'
 
 const clamp = (v: number, a: number, b: number): number => Math.min(b, Math.max(a, v))
 const XFADE_SECS = 5
@@ -72,6 +73,7 @@ export function usePlayer(): PlayerApi {
   const [preservePitch, setPreservePitch] = useState(saved.preservePitch ?? true)
   const [normalize, setNormalize] = useState(saved.normalize ?? false)
   const [spatial, setSpatialState] = useState<SpatialSettings>(() => normalizeSpatial(saved.spatial))
+  const [reverb, setReverbState] = useState<ReverbSettings>(() => normalizeReverb(saved.reverb))
   const [sleepLeft, setSleepLeft] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
@@ -435,6 +437,9 @@ export function usePlayer(): PlayerApi {
   // ---- spatial audio ----
   const setSpatial = useCallback((patch: Partial<SpatialSettings>) => setSpatialState((s) => mergeSpatial(s, patch)), [])
 
+  // ---- reverb ----
+  const setReverb = useCallback((patch: Partial<ReverbSettings>) => setReverbState((r) => mergeReverb(r, patch)), [])
+
   // ---- sleep timer ----
   const setSleep = useCallback(
     (min: number | null) => {
@@ -538,13 +543,13 @@ export function usePlayer(): PlayerApi {
     }
   }, [playing, saveResume])
   useEffect(() => {
-    const settings: Settings = { volume, muted, repeat, shuffle, transition, eq, eqOn, speed, preservePitch, normalize, spatial }
+    const settings: Settings = { volume, muted, repeat, shuffle, transition, eq, eqOn, speed, preservePitch, normalize, spatial, reverb }
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
     } catch {
       /* ignore */
     }
-  }, [volume, muted, repeat, shuffle, transition, eq, eqOn, speed, preservePitch, normalize, spatial])
+  }, [volume, muted, repeat, shuffle, transition, eq, eqOn, speed, preservePitch, normalize, spatial, reverb])
 
   // a changed queue invalidates any preloaded "next" pick
   useEffect(() => {
@@ -682,6 +687,10 @@ export function usePlayer(): PlayerApi {
     engine.setSpatial(spatial)
   }, [engine, spatial])
 
+  useEffect(() => {
+    engine.setReverb(reverb)
+  }, [engine, reverb])
+
   // ---- Media Session: lock screen, notification shade, remote / TV media keys ----
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
@@ -745,7 +754,7 @@ export function usePlayer(): PlayerApi {
 
   return {
     engine, tracks, queue, playlists, viewId, setViewId, current, currentId, playing, time, duration, volume, muted,
-    repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, normalize, setNormalize, eq, eqOn, setEqOn, setEqBand, applyPreset, spatial, setSpatial, sleepLeft, setSleep,
+    repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, normalize, setNormalize, eq, eqOn, setEqOn, setEqBand, applyPreset, spatial, setSpatial, reverb, setReverb, sleepLeft, setSleep,
     loading, notice, hydrated,
     play, toggle, next: () => next(false), prev, seek, seekBy, setVolume, volumeBy, toggleMute,
     cycleRepeat, toggleShuffle, addFiles, attachLrc, remove, clear, reorder,

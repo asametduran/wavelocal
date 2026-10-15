@@ -1,45 +1,12 @@
 import { useCallback } from 'react'
-import type { CSSProperties } from 'react'
 import { Orbit } from 'lucide-react'
+import RangeRow from './RangeRow'
 import SpatialPad from './SpatialPad'
 import { ORBIT_MAX_SECONDS, ORBIT_MIN_SECONDS, PAD_PRESETS, radiusMeters } from '../lib/spatial'
 import type { PlayerApi } from '../types'
 
 const chip = (on: boolean) =>
   `rounded-full px-3 py-1.5 text-sm font-semibold transition ${on ? 'bg-accent text-black' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
-
-interface RangeRowProps {
-  label: string
-  value: number
-  min: number
-  max: number
-  step: number
-  display: string
-  disabled?: boolean
-  onChange: (value: number) => void
-}
-
-function RangeRow({ label, value, min, max, step, display, disabled = false, onChange }: RangeRowProps) {
-  const pct = ((value - min) / (max - min)) * 100
-  return (
-    <div className={`flex items-center gap-3 ${disabled ? 'opacity-40' : ''}`}>
-      <span className="w-20 shrink-0 text-xs text-zinc-400">{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        disabled={disabled}
-        aria-label={label}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="slider always min-w-0 flex-1"
-        style={{ '--p': `${pct}%` } as CSSProperties}
-      />
-      <span className="w-14 shrink-0 text-right text-xs tabular-nums text-zinc-200">{display}</span>
-    </div>
-  )
-}
 
 /** 3D spatial audio controls: position pad, distance, wet/dry mix and the "8D" auto-rotate mode. */
 export default function SpatialSection({ p }: { p: PlayerApi }) {

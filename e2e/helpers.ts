@@ -34,13 +34,15 @@ export const tone = (name: string, seconds = 0.1, frequency = 440): Upload => ({
 
 /**
  * Everything the page created that tests may want to inspect: playing media elements, EQ filters and gain nodes.
- * Gain order follows AudioEngine.init(): [master, deck0.norm, deck0.crossfade, deck1.norm, deck1.crossfade, spatial.dry, spatial.wet, spatial.out].
+ * Gain order follows AudioEngine.init(): [master, deck0.norm, deck0.crossfade, deck1.norm, deck1.crossfade, spatial.dry, spatial.wet, spatial.out, reverb.dry, reverb.wet, reverb.out].
  */
 export interface AudioProbe {
   media: Set<HTMLMediaElement>
   filters: BiquadFilterNode[]
   gains: GainNode[]
   panners: PannerNode[]
+  convolvers: ConvolverNode[]
+  delays: DelayNode[]
 }
 
 declare global {
@@ -49,12 +51,12 @@ declare global {
   }
 }
 
-export const GAIN = { master: 0, deck0Norm: 1, deck0Fade: 2, deck1Norm: 3, deck1Fade: 4, spatialDry: 5, spatialWet: 6, spatialOut: 7 } as const
+export const GAIN = { master: 0, deck0Norm: 1, deck0Fade: 2, deck1Norm: 3, deck1Fade: 4, spatialDry: 5, spatialWet: 6, spatialOut: 7, reverbDry: 8, reverbWet: 9, reverbOut: 10 } as const
 
 /** Record media elements and audio nodes created by the app (must run before the page loads). */
 export async function installAudioProbe(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const probe: AudioProbe = { media: new Set(), filters: [], gains: [], panners: [] }
+    const probe: AudioProbe = { media: new Set(), filters: [], gains: [], panners: [], convolvers: [], delays: [] }
     window.__probe = probe
     const play = HTMLMediaElement.prototype.play
     HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
@@ -71,6 +73,18 @@ export async function installAudioProbe(page: Page): Promise<void> {
     AudioContext.prototype.createPanner = function (this: AudioContext) {
       const node = panner.call(this)
       probe.panners.push(node)
+      return node
+    }
+    const convolver = AudioContext.prototype.createConvolver
+    AudioContext.prototype.createConvolver = function (this: AudioContext) {
+      const node = convolver.call(this)
+      probe.convolvers.push(node)
+      return node
+    }
+    const delay = AudioContext.prototype.createDelay
+    AudioContext.prototype.createDelay = function (this: AudioContext, max?: number) {
+      const node = delay.call(this, max)
+      probe.delays.push(node)
       return node
     }
     const gain = AudioContext.prototype.createGain
@@ -217,6 +231,39 @@ export class PlayerPage {
     return this.page.evaluate(() => {
       const p = window.__probe.panners[0]
       return p ? { model: p.panningModel, x: p.positionX.value, y: p.positionY.value, z: p.positionZ.value, time: p.context.currentTime } : null
+    })
+  }
+
+  /** The reverb convolver's impulse response and the pre-delay line, or null before the audio graph exists. */
+  async reverbNodes(): Promise<{
+    hasBuffer: boolean
+    channels: number
+    seconds: number
+    sampleRate: number
+    normalize: boolean
+    preDelaySeconds: number
+    /** Energy of the left channel in the first 10 ms of the response. */
+    onsetEnergy: number
+  } | null> {
+    return this.page.evaluate(() => {
+      const c = window.__probe.convolvers[0]
+      const d = window.__probe.delays[0]
+      if (!c || !d) return null
+      const b = c.buffer
+      let onsetEnergy = 0
+      if (b) {
+        const left = b.getChannelData(0)
+        for (let i = 0; i < Math.min(left.length, Math.round(b.sampleRate * 0.01)); i++) onsetEnergy += (left[i] ?? 0) ** 2
+      }
+      return {
+        hasBuffer: b !== null,
+        channels: b?.numberOfChannels ?? 0,
+        seconds: b?.duration ?? 0,
+        sampleRate: b?.sampleRate ?? 0,
+        normalize: c.normalize,
+        preDelaySeconds: d.delayTime.value,
+        onsetEnergy,
+      }
     })
   }
 
