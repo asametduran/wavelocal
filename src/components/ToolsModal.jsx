@@ -1,4 +1,4 @@
-import { Moon, Shuffle as Blend, SlidersHorizontal, X } from 'lucide-react'
+import { Moon, Gauge, Shuffle as Blend, SlidersHorizontal, X } from 'lucide-react'
 import { EQ_LABELS, EQ_MAX_DB, EQ_PRESETS } from '../lib/engine'
 
 const TIMERS = [15, 30, 45, 60]
@@ -75,6 +75,45 @@ export default function ToolsModal({ p, open, onClose }) {
             ))}
           </div>
           <p className="mt-2 text-xs text-zinc-500">Double-click a band to reset it. Values are in dB.</p>
+        </section>
+
+        <section aria-label="Speed and pitch" className="mt-6">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
+              <Gauge size={15} /> Speed &amp; pitch
+            </h3>
+            <button onClick={() => p.setSpeed(1)} disabled={p.speed === 1} className={`${chip(false)} !py-1 disabled:opacity-40`}>
+              Reset
+            </button>
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={0.5}
+              max={2}
+              step={0.05}
+              value={p.speed}
+              onChange={(e) => p.setSpeed(parseFloat(e.target.value))}
+              onDoubleClick={() => p.setSpeed(1)}
+              aria-label="Playback speed"
+              className="slider always flex-1"
+              style={{ '--p': `${((p.speed - 0.5) / 1.5) * 100}%` }}
+            />
+            <span className="w-14 text-right text-sm tabular-nums text-zinc-200">{p.speed.toFixed(2)}x</span>
+          </div>
+          <label className="mt-3 flex items-center justify-between text-sm text-zinc-300">
+            Keep original pitch
+            <button
+              role="switch"
+              aria-checked={p.preservePitch}
+              onClick={() => p.setPreservePitch(!p.preservePitch)}
+              className={`relative h-7 w-12 rounded-full transition ${p.preservePitch ? 'bg-accent' : 'bg-white/15'}`}
+              aria-label="Keep original pitch"
+            >
+              <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${p.preservePitch ? 'left-6' : 'left-1'}`} />
+            </button>
+          </label>
+          <p className="mt-2 text-xs text-zinc-500">Off gives a vinyl-style pitch shift as speed changes.</p>
         </section>
 
         <section aria-label="Sleep timer" className="mt-6">

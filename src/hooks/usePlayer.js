@@ -35,6 +35,8 @@ export function usePlayer() {
   const [transition, setTransition] = useState(saved.transition ?? 'off') // off | gapless | crossfade
   const [eq, setEq] = useState(Array.isArray(saved.eq) && saved.eq.length === 10 ? saved.eq : EQ_PRESETS.Flat)
   const [eqOn, setEqOn] = useState(saved.eqOn ?? true)
+  const [speed, setSpeedState] = useState(clamp(saved.speed ?? 1, 0.5, 2))
+  const [preservePitch, setPreservePitch] = useState(saved.preservePitch ?? true)
   const [sleepLeft, setSleepLeft] = useState(null)
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
@@ -478,11 +480,11 @@ export function usePlayer() {
   }, [playing, saveResume])
   useEffect(() => {
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ volume, muted, repeat, shuffle, transition, eq, eqOn }))
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ volume, muted, repeat, shuffle, transition, eq, eqOn, speed, preservePitch }))
     } catch {
       /* ignore */
     }
-  }, [volume, muted, repeat, shuffle, transition, eq, eqOn])
+  }, [volume, muted, repeat, shuffle, transition, eq, eqOn, speed, preservePitch])
 
   // a changed queue invalidates any preloaded "next" pick
   useEffect(() => {
@@ -584,6 +586,17 @@ export function usePlayer() {
     })
   }, [engine, volume, muted])
 
+  // defaultPlaybackRate survives the media load algorithm that runs on every src change
+  useEffect(() => {
+    engine.decks.forEach((d) => {
+      d.el.defaultPlaybackRate = speed
+      d.el.playbackRate = speed
+      d.el.preservesPitch = preservePitch
+      d.el.mozPreservesPitch = preservePitch
+      d.el.webkitPreservesPitch = preservePitch
+    })
+  }, [engine, speed, preservePitch])
+
   useEffect(() => {
     engine.setEq(eq)
     engine.setEqEnabled(eqOn)
@@ -650,7 +663,7 @@ export function usePlayer() {
 
   return {
     engine, tracks, queue, playlists, viewId, setViewId, current, currentId, playing, time, duration, volume, muted,
-    repeat, shuffle, transition, setTransition, eq, eqOn, setEqOn, setEqBand, applyPreset, sleepLeft, setSleep,
+    repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, eq, eqOn, setEqOn, setEqBand, applyPreset, sleepLeft, setSleep,
     loading, notice, hydrated,
     play, toggle, next: () => next(false), prev, seek, seekBy, setVolume, volumeBy, toggleMute,
     cycleRepeat, toggleShuffle, addFiles, attachLrc, remove, clear, reorder,

@@ -25,7 +25,7 @@ and pushes to `main` (which also triggers the Android APK build).
 ## Next up (in rough priority order)
 - [ ] Virtualized track lists so libraries of 10,000+ songs scroll smoothly (windowing, no extra deps if practical)
 - [ ] ReplayGain / loudness normalization (read ReplayGain tags, fall back to computed RMS/LUFS estimate, toggle in Sound panel)
-- [ ] Pitch and speed control (playbackRate with preservesPitch toggle, 0.5x-2x, reset button)
+- [x] Pitch and speed control (playbackRate with preservesPitch toggle, 0.5x-2x, reset button)
 - [ ] Custom themes and accent colors (CSS variables, presets + custom picker, persisted)
 - [ ] Tag editor: edit and save ID3 title/artist/album/cover (write tags into a downloaded copy or back to the stored blob)
 - [ ] Folder tree browser (use webkitRelativePath to group by directory; browse by folder)
@@ -46,3 +46,4 @@ and pushes to `main` (which also triggers the Android APK build).
 
 ## Changelog (one line per autonomous run)
 - Initial roadmap created.
+- Added speed (0.5x-2x) and keep-pitch toggle to Sound panel, persisted locally.
