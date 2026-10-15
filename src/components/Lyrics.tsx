@@ -1,14 +1,23 @@
 import { useEffect, useRef } from 'react'
 import { FileText } from 'lucide-react'
 import { activeIndex } from '../lib/lrc'
+import type { Track } from '../types'
 
 /** Karaoke-style lyrics: the active line is highlighted and kept centered; tap a line to seek. */
-export default function Lyrics({ track, time, onSeek, onLoad, className = '' }) {
+interface LyricsProps {
+  track: Track | null | undefined
+  time: number
+  onSeek?: (seconds: number) => void
+  onLoad?: (file: File) => void
+  className?: string
+}
+
+export default function Lyrics({ track, time, onSeek, onLoad, className = '' }: LyricsProps) {
   const lyr = track?.lyrics
   const lines = lyr?.lines || []
   const idx = lyr?.synced ? activeIndex(lines, time + 0.12) : -1
-  const box = useRef(null)
-  const refs = useRef([])
+  const box = useRef<HTMLDivElement>(null)
+  const refs = useRef<(HTMLButtonElement | null)[]>([])
 
   useEffect(() => {
     box.current?.scrollTo({ top: 0 })
@@ -55,7 +64,7 @@ export default function Lyrics({ track, time, onSeek, onLoad, className = '' }) 
       {lines.map((l, i) => {
         const dist = idx < 0 ? 0 : Math.abs(i - idx)
         const active = i === idx
-        const cls = lyr.synced
+        const cls = lyr?.synced
           ? active
             ? 'scale-105 text-white opacity-100'
             : dist === 1
@@ -65,9 +74,11 @@ export default function Lyrics({ track, time, onSeek, onLoad, className = '' }) 
         return (
           <button
             key={i}
-            ref={(el) => (refs.current[i] = el)}
-            onClick={() => lyr.synced && onSeek?.(l.t)}
-            disabled={!lyr.synced}
+            ref={(el) => {
+              refs.current[i] = el
+            }}
+            onClick={() => l.t !== null && onSeek?.(l.t)}
+            disabled={!lyr?.synced}
             className={`block w-full origin-center py-2 text-xl font-bold leading-snug text-zinc-200 transition-all duration-500 sm:text-2xl ${cls}`}
           >
             {l.text || '♪'}

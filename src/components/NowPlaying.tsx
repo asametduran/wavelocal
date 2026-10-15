@@ -3,9 +3,18 @@ import { FolderOpen, Headphones, Upload } from 'lucide-react'
 import Cover from './Cover'
 import Lyrics from './Lyrics'
 import Visualizer from './Visualizer'
+import type { PlayerApi } from '../types'
 
-export function StageTabs({ tab, setTab, hasLyrics }) {
-  const btn = (id, label) => (
+export type StageTab = 'art' | 'lyrics'
+
+interface StageTabsProps {
+  tab: StageTab
+  setTab: (tab: StageTab) => void
+  hasLyrics: boolean
+}
+
+export function StageTabs({ tab, setTab, hasLyrics }: StageTabsProps) {
+  const btn = (id: StageTab, label: string) => (
     <button
       role="tab"
       aria-selected={tab === id}
@@ -24,9 +33,15 @@ export function StageTabs({ tab, setTab, hasLyrics }) {
   )
 }
 
-export default function NowPlaying({ p, onPickFiles, onPickFolder }) {
+interface NowPlayingProps {
+  p: PlayerApi
+  onPickFiles: () => void
+  onPickFolder: () => void
+}
+
+export default function NowPlaying({ p, onPickFiles, onPickFolder }: NowPlayingProps) {
   const { current, playing } = p
-  const [tab, setTab] = useState('art')
+  const [tab, setTab] = useState<StageTab>('art')
 
   return (
     <section className="relative hidden min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-6 py-6 md:flex">

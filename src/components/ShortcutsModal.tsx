@@ -1,6 +1,6 @@
 import { X } from 'lucide-react'
 
-const SHORTCUTS = [
+const SHORTCUTS: readonly (readonly [keys: string, description: string])[] = [
   ['Space', 'Play / pause'],
   ['← / →', 'Seek 5 seconds'],
   ['Shift + ← / →', 'Previous / next track'],
@@ -16,7 +16,12 @@ const SHORTCUTS = [
   ['Esc', 'Close the top panel'],
 ]
 
-export default function ShortcutsModal({ open, onClose }) {
+interface ShortcutsModalProps {
+  open: boolean
+  onClose: () => void
+}
+
+export default function ShortcutsModal({ open, onClose }: ShortcutsModalProps) {
   if (!open) return null
   return (
     <div className="fixed inset-0 z-[80] grid place-items-center bg-base/80 p-4 backdrop-blur-sm" onClick={onClose}>

@@ -1,21 +1,31 @@
 import { Moon, Gauge, Palette, Shuffle as Blend, SlidersHorizontal, Volume2, X } from 'lucide-react'
 import { ACCENT_PRESETS, DEFAULT_ACCENT } from '../hooks/useTheme'
 import { EQ_LABELS, EQ_MAX_DB, EQ_PRESETS } from '../lib/engine'
+import type { CSSProperties } from 'react'
+import type { PlayerApi, TransitionMode } from '../types'
 
 const TIMERS = [15, 30, 45, 60]
-const MODES = [
+const MODES: readonly (readonly [id: TransitionMode, label: string, description: string])[] = [
   ['off', 'Off', 'Tracks play one after another.'],
   ['gapless', 'Gapless', 'The next track starts the instant this one ends.'],
   ['crossfade', 'Crossfade', 'Tracks blend into each other over ~5 seconds.'],
 ]
-const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-const same = (a, b) => a.every((v, i) => v === b[i])
+const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+const same = (a: readonly number[], b: readonly number[]) => a.every((v, i) => v === b[i])
 
-const chip = (on) =>
+const chip = (on: boolean) =>
   `rounded-full px-4 py-2 text-sm font-semibold transition ${on ? 'bg-accent text-black' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
 
 /** Equalizer, sleep timer and transition settings. Bottom sheet on phones, centered dialog elsewhere. */
-export default function ToolsModal({ p, open, onClose, accent, setAccent }) {
+interface ToolsModalProps {
+  p: PlayerApi
+  open: boolean
+  onClose: () => void
+  accent: string
+  setAccent: (hex: string) => void
+}
+
+export default function ToolsModal({ p, open, onClose, accent, setAccent }: ToolsModalProps) {
   if (!open) return null
   const activePreset = Object.keys(EQ_PRESETS).find((k) => same(EQ_PRESETS[k], p.eq))
   const mode = MODES.find((m) => m[0] === p.transition) || MODES[0]
@@ -68,7 +78,7 @@ export default function ToolsModal({ p, open, onClose, accent, setAccent }) {
                     onDoubleClick={() => p.setEqBand(i, 0)}
                     aria-label={`${label} Hz gain`}
                     className="slider always absolute left-1/2 top-1/2 w-36 -translate-x-1/2 -translate-y-1/2 -rotate-90"
-                    style={{ '--p': `${((p.eq[i] + EQ_MAX_DB) / (EQ_MAX_DB * 2)) * 100}%` }}
+                    style={{ '--p': `${((p.eq[i] + EQ_MAX_DB) / (EQ_MAX_DB * 2)) * 100}%` } as CSSProperties}
                   />
                 </div>
                 <span className="text-[11px] text-zinc-500">{label}</span>
@@ -98,7 +108,7 @@ export default function ToolsModal({ p, open, onClose, accent, setAccent }) {
               onDoubleClick={() => p.setSpeed(1)}
               aria-label="Playback speed"
               className="slider always flex-1"
-              style={{ '--p': `${((p.speed - 0.5) / 1.5) * 100}%` }}
+              style={{ '--p': `${((p.speed - 0.5) / 1.5) * 100}%` } as CSSProperties}
             />
             <span className="w-14 text-right text-sm tabular-nums text-zinc-200">{p.speed.toFixed(2)}x</span>
           </div>

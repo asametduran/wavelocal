@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ChangeEvent } from 'react'
 import { Loader2, Upload } from 'lucide-react'
 import { usePlayer } from './hooks/usePlayer'
 import { useHotkeys } from './hooks/useHotkeys'
@@ -16,9 +17,9 @@ export default function App() {
   const p = usePlayer()
   const [tv, setTv] = useTvMode()
   const [accent, setAccent] = useTheme()
-  const fileInput = useRef(null)
-  const folderInput = useRef(null)
-  const searchRef = useRef(null)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
   const [nowOpen, setNowOpen] = useState(false)
   const [queueOpen, setQueueOpen] = useState(false)
@@ -27,10 +28,22 @@ export default function App() {
 
   // Back button / remote Back / Escape: close the topmost sheet first.
   const onBack = useCallback(() => {
-    if (helpOpen) return setHelpOpen(false) || true
-    if (toolsOpen) return setToolsOpen(false) || true
-    if (queueOpen) return setQueueOpen(false) || true
-    if (nowOpen) return setNowOpen(false) || true
+    if (helpOpen) {
+      setHelpOpen(false)
+      return true
+    }
+    if (toolsOpen) {
+      setToolsOpen(false)
+      return true
+    }
+    if (queueOpen) {
+      setQueueOpen(false)
+      return true
+    }
+    if (nowOpen) {
+      setNowOpen(false)
+      return true
+    }
     return false
   }, [helpOpen, toolsOpen, queueOpen, nowOpen])
 
@@ -63,25 +76,27 @@ export default function App() {
   // Window-wide drag & drop for external files (internal queue reordering is ignored).
   useEffect(() => {
     let depth = 0
-    const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files')
-    const enter = (e) => {
+    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types || []).includes('Files')
+    const enter = (e: DragEvent) => {
       if (!hasFiles(e)) return
       e.preventDefault()
       depth++
       setDragging(true)
     }
-    const over = (e) => hasFiles(e) && e.preventDefault()
-    const leave = (e) => {
+    const over = (e: DragEvent) => {
+      if (hasFiles(e)) e.preventDefault()
+    }
+    const leave = (e: DragEvent) => {
       if (!hasFiles(e)) return
       depth = Math.max(0, depth - 1)
       if (depth === 0) setDragging(false)
     }
-    const drop = (e) => {
+    const drop = (e: DragEvent) => {
       if (!hasFiles(e)) return
       e.preventDefault()
       depth = 0
       setDragging(false)
-      p.addFiles(e.dataTransfer.files)
+      if (e.dataTransfer) p.addFiles(e.dataTransfer.files)
     }
     window.addEventListener('dragenter', enter)
     window.addEventListener('dragover', over)
@@ -96,7 +111,7 @@ export default function App() {
   }, [p.addFiles])
 
   const onInput = useCallback(
-    (e) => {
+    (e: ChangeEvent<HTMLInputElement>) => {
       if (e.target.files?.length) p.addFiles(e.target.files)
       e.target.value = ''
     },

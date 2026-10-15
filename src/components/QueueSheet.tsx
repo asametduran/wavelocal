@@ -1,9 +1,18 @@
 import { X } from 'lucide-react'
 import Playlist from './Playlist'
 import { useSwipe } from '../hooks/useSwipe'
+import type { PlayerApi } from '../types'
 
 /** Phone bottom-sheet queue. Drag the handle down (or tap the backdrop) to dismiss. */
-export default function QueueSheet({ p, open, onClose, onPickFiles, onPickFolder }) {
+interface QueueSheetProps {
+  p: PlayerApi
+  open: boolean
+  onClose: () => void
+  onPickFiles: () => void
+  onPickFolder: () => void
+}
+
+export default function QueueSheet({ p, open, onClose, onPickFiles, onPickFolder }: QueueSheetProps) {
   const swipe = useSwipe({ onDown: onClose, trackDown: true, threshold: 100 })
 
   return (

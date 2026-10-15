@@ -3,12 +3,13 @@ import Cover from './Cover'
 import Slider from './Slider'
 import { formatTime } from '../lib/format'
 import { useSwipe } from '../hooks/useSwipe'
+import type { PlayerApi } from '../types'
 
 const iconBtn =
   'grid h-9 w-9 place-items-center rounded-full text-zinc-400 transition hover:text-white active:scale-95 disabled:opacity-30 disabled:hover:text-zinc-400'
 
 /** Shuffle / prev / play / next / repeat + seek bar. `big` = thumb-sized for the phone sheet. */
-export function Transport({ p, big = false }) {
+export function Transport({ p, big = false }: { p: PlayerApi; big?: boolean }) {
   const { current, playing, time, duration, repeat, shuffle } = p
   const empty = !current
   const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat
@@ -56,7 +57,7 @@ export function Transport({ p, big = false }) {
 }
 
 /** Compact phone player pinned to the bottom. Tap or swipe up to expand. */
-export function MiniBar({ p, onOpen }) {
+export function MiniBar({ p, onOpen }: { p: PlayerApi; onOpen: () => void }) {
   const { current, playing, time, duration } = p
   const { handlers } = useSwipe({ onUp: onOpen, threshold: 40 })
   if (!current) return null
@@ -87,7 +88,7 @@ export function MiniBar({ p, onOpen }) {
 }
 
 /** Tablet / desktop / TV footer. */
-export default function PlayerBar({ p, onOpenTools }) {
+export default function PlayerBar({ p, onOpenTools }: { p: PlayerApi; onOpenTools: () => void }) {
   const { current, volume, muted, sleepLeft } = p
   const effective = muted ? 0 : volume
   const VolIcon = effective === 0 ? VolumeX : effective < 0.5 ? Volume1 : Volume2

@@ -4,13 +4,23 @@ import Cover from './Cover'
 import Lyrics from './Lyrics'
 import Visualizer from './Visualizer'
 import { StageTabs } from './NowPlaying'
+import type { StageTab } from './NowPlaying'
+import type { PlayerApi } from '../types'
 import { Transport } from './PlayerBar'
 import { useSwipe } from '../hooks/useSwipe'
 
 /** Full-screen Now Playing for phones. Drag down to minimize; swipe the artwork for prev/next. */
-export default function NowPlayingSheet({ p, open, onClose, onOpenQueue, onOpenTools }) {
+interface NowPlayingSheetProps {
+  p: PlayerApi
+  open: boolean
+  onClose: () => void
+  onOpenQueue: () => void
+  onOpenTools: () => void
+}
+
+export default function NowPlayingSheet({ p, open, onClose, onOpenQueue, onOpenTools }: NowPlayingSheetProps) {
   const { current, playing } = p
-  const [tab, setTab] = useState('art')
+  const [tab, setTab] = useState<StageTab>('art')
   const sheet = useSwipe({ onDown: onClose, trackDown: true, threshold: 110 })
   const art = useSwipe({ onLeft: p.next, onRight: p.prev, threshold: 60 })
 

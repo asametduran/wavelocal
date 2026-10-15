@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent, RefObject, UIEvent } from 'react'
 import { FolderOpen, GripVertical, ListPlus, Plus, Search, Trash2, Tv, X } from 'lucide-react'
 import Cover from './Cover'
 import { formatTime } from '../lib/format'
+import type { PlayerApi } from '../types'
 
 function Bars() {
   return (
@@ -18,19 +20,29 @@ const OVERSCAN = 8
 
 const headBtn = 'grid h-8 w-8 place-items-center rounded-full text-zinc-400 hover:bg-white/10 hover:text-white'
 
-export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, onToggleTv, className = '' }) {
-  const [query, setQuery] = useState('')
-  const [dragFrom, setDragFrom] = useState(null)
-  const [dragOver, setDragOver] = useState(null)
-  const [menuFor, setMenuFor] = useState(null)
+interface PlaylistProps {
+  p: PlayerApi
+  searchRef?: RefObject<HTMLInputElement | null>
+  onPickFiles: () => void
+  onPickFolder: () => void
+  tv?: boolean
+  onToggleTv?: () => void
+  className?: string
+}
 
-  const listRef = useRef(null)
+export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, onToggleTv, className = '' }: PlaylistProps) {
+  const [query, setQuery] = useState('')
+  const [dragFrom, setDragFrom] = useState<number | null>(null)
+  const [dragOver, setDragOver] = useState<number | null>(null)
+  const [menuFor, setMenuFor] = useState<string | null>(null)
+
+  const listRef = useRef<HTMLUListElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewH, setViewH] = useState(600)
 
   useEffect(() => {
     const el = listRef.current
-    if (!el) return
+    if (!el) return undefined
     const measure = () => el.clientHeight > 0 && setViewH(el.clientHeight) // a hidden list reports 0: keep the default
     measure()
     const ro = new ResizeObserver(measure)
@@ -53,7 +65,7 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
   const end = Math.min(rows.length, Math.ceil((scrollTop + viewH) / ROW_H) + OVERSCAN)
   const visible = rows.slice(start, end)
 
-  const onView = (e) => {
+  const onView = (e: ChangeEvent<HTMLSelectElement>) => {
     const v = e.target.value
     if (v === '__new') {
       const name = window.prompt('Name your new playlist')
@@ -69,11 +81,11 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
     } else if (window.confirm('Remove every track from your library? This clears the offline copy too.')) p.clear()
   }
 
-  const addTo = (plId, trackId) => {
+  const addTo = (plId: string, trackId: string) => {
     p.addToPlaylist(plId, trackId)
     setMenuFor(null)
   }
-  const addToNew = (trackId) => {
+  const addToNew = (trackId: string) => {
     const name = window.prompt('Name your new playlist')
     if (name === null) return
     p.createPlaylist(name, [trackId])
@@ -137,7 +149,7 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
         </label>
       </div>
 
-      <ul ref={listRef} onScroll={(e) => {
+      <ul ref={listRef} onScroll={(e: UIEvent<HTMLUListElement>) => {
           setScrollTop(e.currentTarget.scrollTop)
           if (e.currentTarget.clientHeight > 0) setViewH(e.currentTarget.clientHeight)
         }} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">

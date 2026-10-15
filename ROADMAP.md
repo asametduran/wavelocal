@@ -19,7 +19,7 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - [x] A1. Add TypeScript tooling: `typescript`, `@types/react`, `@types/react-dom`, `tsconfig.json` (strict, `allowJs` + `checkJs` off for the transition, `noEmit`), `npm run typecheck`; shared domain types (`Track`, `Playlist`, `Lyrics`, `LyricLine`, `PlayerState`, settings) in `src/types.ts`
 - [x] A2. Migrate `src/lib/*` (engine, lrc, db, metadata, loudness, format, theme) to `.ts` with precise types, no `any`
 - [x] A3. Migrate `src/hooks/*` (usePlayer, useHotkeys, useTvMode, useSwipe) to `.ts`; type the player API returned by `usePlayer`
-- [ ] A4. Migrate all components and entry points to `.tsx`; typed props everywhere
+- [x] A4. Migrate all components and entry points to `.tsx`; typed props everywhere
 - [ ] A5. Turn on full strictness (`strict`, `noUncheckedIndexedAccess`, `noImplicitReturns`), get `npm run typecheck` to zero errors, make `npm run build` run the typecheck first, document in README
 
 ### Pack B - Automated headless testing with synthetic audio
@@ -83,3 +83,4 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - A1: added TypeScript tooling (tsconfig, `npm run typecheck`) and shared domain types in `src/types.ts`.
 - A2: migrated `src/lib/*` to strictly typed TypeScript (no `any`), added jsmediatags typings; theme logic lives in `hooks/useTheme` and migrates with A3.
 - A3: migrated all hooks to TypeScript and typed the `usePlayer` return value as `PlayerApi` in `src/types.ts`.
+- A4: migrated all components and entry points to `.tsx` with typed props; added a React typings augmentation for folder inputs.

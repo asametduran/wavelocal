@@ -71,25 +71,26 @@ Production build: `npm run build` (output in `dist/`, deployable to any static h
 
 ```
 src/
-├── main.jsx              entry point
-├── App.jsx               layout, window-wide drag & drop, file/folder inputs
+├── main.tsx              entry point
+├── App.tsx               layout, window-wide drag & drop, file/folder inputs
 ├── hooks/
-│   ├── usePlayer.js      queue, playlists, persistence, sleep timer, crossfade, Media Session
-│   ├── useHotkeys.js     global keyboard / remote shortcuts
-│   ├── useTvMode.js      10-foot UI + D-pad focus navigation
-│   └── useSwipe.js       touch gestures
+│   ├── usePlayer.ts      queue, playlists, persistence, sleep timer, crossfade, Media Session
+│   ├── useHotkeys.ts     global keyboard / remote shortcuts
+│   ├── useTvMode.ts      10-foot UI + D-pad focus navigation
+│   └── useSwipe.ts       touch gestures
 ├── lib/
-│   ├── engine.js         Web Audio graph: decks, 10-band EQ, analyser, fades
-│   ├── lrc.js            LRC parser + active-line lookup
-│   ├── db.js             IndexedDB wrapper (tracks + meta)
-│   ├── metadata.js       File → track (ID3 tags, cover art, lyrics pairing)
-│   └── format.js         time formatting, procedural fallback artwork
+│   ├── engine.ts         Web Audio graph: decks, 10-band EQ, analyser, fades
+│   ├── lrc.ts            LRC parser + active-line lookup
+│   ├── db.ts             IndexedDB wrapper (tracks + meta)
+│   ├── metadata.ts       File → track (ID3 tags, cover art, lyrics pairing)
+│   └── format.ts         time formatting, procedural fallback artwork
+├── types.ts              shared domain types (Track, Playlist, Lyrics, PlayerApi, …)
 └── components/
-    ├── Playlist.jsx      queue sidebar, search, drag-to-reorder
-    ├── NowPlaying.jsx    center stage: artwork, title, empty state
-    ├── PlayerBar.jsx     persistent transport + seek + volume
-    ├── Slider.jsx        styled range input
-    └── Cover.jsx         embedded or generated artwork
+    ├── Playlist.tsx      queue sidebar, search, drag-to-reorder
+    ├── NowPlaying.tsx    center stage: artwork, title, empty state
+    ├── PlayerBar.tsx     persistent transport + seek + volume
+    ├── Slider.tsx        styled range input
+    └── Cover.tsx         embedded or generated artwork
 ```
 
 State lives in a single `usePlayer` hook. Tracks are held as object URLs created from the `File` objects you choose; they are revoked when removed. Nothing is persisted or sent anywhere.

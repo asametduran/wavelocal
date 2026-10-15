@@ -1,14 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
+import type { AudioEngine } from '../lib/engine'
+
+interface VisualizerProps {
+  engine: AudioEngine
+  playing: boolean
+  className?: string
+}
+
+type VisualizerMode = 'bars' | 'wave'
 
 /** Canvas audio visualizer fed by the engine's AnalyserNode. Click to switch bars / waveform. */
-export default function Visualizer({ engine, playing, className = '' }) {
-  const ref = useRef(null)
-  const [mode, setMode] = useState('bars')
+export default function Visualizer({ engine, playing, className = '' }: VisualizerProps) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  const [mode, setMode] = useState<VisualizerMode>('bars')
 
   useEffect(() => {
     const canvas = ref.current
     if (!canvas) return undefined
     const g = canvas.getContext('2d')
+    if (!g) return undefined
     let raf = 0
     let w = 0
     let h = 0
