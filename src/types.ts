@@ -107,6 +107,47 @@ export interface ReverbSettings {
   mix: number
 }
 
+export interface CompressorSettings {
+  enabled: boolean
+  /** Level above which gain reduction starts, in dBFS. */
+  threshold: number
+  /** Input dB per output dB above the threshold (1 = no compression). */
+  ratio: number
+  /** Milliseconds to react to a loud signal. */
+  attack: number
+  /** Milliseconds to recover after it. */
+  release: number
+  /** Width in dB of the soft transition around the threshold. */
+  knee: number
+  /** Gain added after compression, in dB. */
+  makeup: number
+}
+
+export interface LimiterSettings {
+  enabled: boolean
+  /** The level the output is held under, in dBFS. */
+  ceiling: number
+}
+
+export interface DynamicsSettings {
+  compressor: CompressorSettings
+  limiter: LimiterSettings
+}
+
+/** Mid/side stereo processing. */
+export interface StereoSettings {
+  /** 0 = mono, 1 = unchanged, 2 = twice as wide. */
+  width: number
+  /** Sum both channels to mono (same as width 0, kept as its own switch for clarity). */
+  mono: boolean
+}
+
+/** Simple bass / treble shelves in dB. */
+export interface ToneSettings {
+  bass: number
+  treble: number
+}
+
 /** User preferences persisted in localStorage under `wl-settings`. */
 export interface Settings {
   volume: number
@@ -114,6 +155,7 @@ export interface Settings {
   repeat: RepeatMode
   shuffle: boolean
   transition: TransitionMode
+  /** The equalizer used by tracks without their own remembered EQ. */
   eqBands: EqBand[]
   eqPresets: EqPreset[]
   eqOn: boolean
@@ -122,6 +164,9 @@ export interface Settings {
   normalize: boolean
   spatial: SpatialSettings
   reverb: ReverbSettings
+  dynamics: DynamicsSettings
+  stereo: StereoSettings
+  tone: ToneSettings
 }
 
 /** Snapshot of live playback state exposed by the player. */
@@ -142,6 +187,12 @@ export interface PlayerState {
   eqOn: boolean
   /** Seconds until the sleep timer fires, or null when inactive. */
   sleepLeft: number | null
+}
+
+/** A partial update to the dynamics settings (each processor merged separately). */
+export interface DynamicsPatch {
+  compressor?: Partial<CompressorSettings>
+  limiter?: Partial<LimiterSettings>
 }
 
 /** Everything `usePlayer` exposes to the UI. */
@@ -186,6 +237,10 @@ export interface PlayerApi {
   removeEqBand: (id: string) => void
   /** Back to the flat 10-band graphic layout. */
   resetEq: () => void
+  /** True when the current track has its own remembered equalizer curve. */
+  eqRemembered: boolean
+  /** Give the current track its own equalizer (starting from the current curve), or return it to the shared one. */
+  setEqRemembered: (on: boolean) => void
   eqPresets: EqPreset[]
   saveEqPreset: (name: string) => void
   loadEqPreset: (name: string) => void
@@ -196,6 +251,12 @@ export interface PlayerApi {
   reverb: ReverbSettings
   /** Merge a change into the reverb settings; picking a different room also loads that room's default decay and pre-delay. */
   setReverb: (patch: Partial<ReverbSettings>) => void
+  dynamics: DynamicsSettings
+  setDynamics: (patch: DynamicsPatch) => void
+  stereo: StereoSettings
+  setStereo: (patch: Partial<StereoSettings>) => void
+  tone: ToneSettings
+  setTone: (patch: Partial<ToneSettings>) => void
   /** Seconds left on the sleep timer, or null when it is off. */
   sleepLeft: number | null
   /** Start the sleep timer for `minutes`; 0 or null cancels it. */
@@ -230,4 +291,6 @@ export interface MetaValues {
   order: string[]
   playlists: Playlist[]
   resume: ResumePoint | null
+  /** Per-track equalizer curves, keyed by track id. */
+  trackEq: Record<string, EqBand[]>
 }

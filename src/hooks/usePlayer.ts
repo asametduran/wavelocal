@@ -5,9 +5,10 @@ import { estimateGainDb } from '../lib/loudness'
 import { buildTrack, filesToTracks, lrcFromFile, norm, revokeTrack } from '../lib/metadata'
 import { moveItem, nextRepeat, pickTrack, resolveQueue } from '../lib/queue'
 import { mergeSpatial, normalizeSpatial } from '../lib/spatial'
-import { addBand, bandsFromSettings, deletePreset, findPreset, graphicBands, normalizePresets, removeBand, savePreset, updateBand } from '../lib/eq'
+import { addBand, bandsFromSettings, deletePreset, findPreset, graphicBands, normalizePresets, normalizeTrackEq, removeBand, savePreset, updateBand } from '../lib/eq'
 import { mergeReverb, normalizeReverb } from '../lib/reverb'
-import type { EqBand, EqPreset, Lyrics, PlayerApi, Playlist, RepeatMode, ReverbSettings, Settings, SpatialSettings, Track, TransitionMode } from '../types'
+import { mergeDynamics, mergeStereo, mergeTone, normalizeDynamics, normalizeStereo, normalizeTone } from '../lib/dynamics'
+import type { DynamicsPatch, DynamicsSettings, EqBand, EqPreset, Lyrics, PlayerApi, Playlist, RepeatMode, ReverbSettings, Settings, SpatialSettings, StereoSettings, ToneSettings, Track, TransitionMode } from '../types'
 
 const clamp = (v: number, a: number, b: number): number => Math.min(b, Math.max(a, v))
 const XFADE_SECS = 5
@@ -68,7 +69,9 @@ export function usePlayer(): PlayerApi {
   const [repeat, setRepeat] = useState<RepeatMode>(saved.repeat ?? 'off')
   const [shuffle, setShuffle] = useState(saved.shuffle ?? false)
   const [transition, setTransition] = useState<TransitionMode>(saved.transition ?? 'off')
-  const [eqBands, setEqBands] = useState<EqBand[]>(() => bandsFromSettings(saved))
+  // the shared equalizer, plus optional per-track overrides; the curve in effect is derived from the two (see below)
+  const [globalBands, setGlobalBands] = useState<EqBand[]>(() => bandsFromSettings(saved))
+  const [trackEq, setTrackEq] = useState<Record<string, EqBand[]>>({})
   const [eqPresets, setEqPresets] = useState<EqPreset[]>(() => normalizePresets(saved.eqPresets))
   const [eqOn, setEqOn] = useState(saved.eqOn ?? true)
   const [speed, setSpeedState] = useState(clamp(saved.speed ?? 1, 0.5, 2))
@@ -76,6 +79,9 @@ export function usePlayer(): PlayerApi {
   const [normalize, setNormalize] = useState(saved.normalize ?? false)
   const [spatial, setSpatialState] = useState<SpatialSettings>(() => normalizeSpatial(saved.spatial))
   const [reverb, setReverbState] = useState<ReverbSettings>(() => normalizeReverb(saved.reverb))
+  const [dynamics, setDynamicsState] = useState<DynamicsSettings>(() => normalizeDynamics(saved.dynamics))
+  const [stereo, setStereoState] = useState<StereoSettings>(() => normalizeStereo(saved.stereo))
+  const [tone, setToneState] = useState<ToneSettings>(() => normalizeTone(saved.tone))
   const [sleepLeft, setSleepLeft] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
@@ -384,6 +390,7 @@ export function usePlayer(): PlayerApi {
       setTracks((l) => l.filter((x) => x.id !== id))
       setPlaylists((l) => l.map((p) => ({ ...p, trackIds: p.trackIds.filter((x) => x !== id) })))
       history.current = history.current.filter((x) => x !== id)
+      setTrackEq((m) => (m[id] ? Object.fromEntries(Object.entries(m).filter(([key]) => key !== id)) : m))
       revokeTrack(t)
       db.deleteTrack(id).catch(() => {})
     },
@@ -405,6 +412,7 @@ export function usePlayer(): PlayerApi {
     setCurrentId(null)
     setTime(0)
     setDuration(0)
+    setTrackEq({})
     db.clearTracks().catch(() => {})
     db.setMeta('resume', null).catch(() => {})
   }, [cancelTransition, engine])
@@ -430,36 +438,75 @@ export function usePlayer(): PlayerApi {
   }, [])
 
   // ---- equalizer ----
-  // The bands are the source of truth; refs let the imperative actions below read the latest list without stale closures.
+  // The curve in effect is the current track's own (if it has one), otherwise the shared one. Edits go to whichever applies.
+  const trackBands = currentId ? trackEq[currentId] : undefined
+  const eqBands = trackBands ?? globalBands
+  const eqRemembered = trackBands !== undefined
+  // refs let the imperative actions below read the latest values without stale closures
   const bandsRef = useRef(eqBands)
   bandsRef.current = eqBands
+  const trackEqRef = useRef(trackEq)
+  trackEqRef.current = trackEq
+  const eqKeyRef = useRef<string | null>(currentId)
+  eqKeyRef.current = currentId
   const presetsRef = useRef(eqPresets)
   presetsRef.current = eqPresets
   const eq = useMemo(() => eqBands.map((b) => b.gain), [eqBands])
 
-  const setEqBand = useCallback((index: number, gain: number) => {
-    const band = bandsRef.current[index]
-    if (band) setEqBands((l) => updateBand(l, band.id, { gain }))
-  }, [])
-  const applyPreset = useCallback((name: string) => {
-    const preset = EQ_PRESETS[name]
-    if (preset) setEqBands(graphicBands(preset))
-  }, [])
-  const updateEqBand = useCallback((id: string, patch: Partial<Omit<EqBand, 'id'>>) => setEqBands((l) => updateBand(l, id, patch)), [])
-  const addEqBand = useCallback((band?: Partial<Omit<EqBand, 'id'>>) => {
-    const next = addBand(bandsRef.current, band)
-    if (next === bandsRef.current) return null
+  const editBands = useCallback((change: (bands: EqBand[]) => EqBand[]) => {
+    const before = bandsRef.current
+    const next = change(before)
+    if (next === before) return
     bandsRef.current = next
-    setEqBands(next)
-    return next[next.length - 1]?.id ?? null
+    const id = eqKeyRef.current
+    if (id && trackEqRef.current[id]) setTrackEq((m) => ({ ...m, [id]: next }))
+    else setGlobalBands(next)
   }, [])
-  const removeEqBand = useCallback((id: string) => setEqBands((l) => removeBand(l, id)), [])
-  const resetEq = useCallback(() => setEqBands(graphicBands()), [])
+
+  const setEqBand = useCallback(
+    (index: number, gain: number) => {
+      const band = bandsRef.current[index]
+      if (band) editBands((l) => updateBand(l, band.id, { gain }))
+    },
+    [editBands],
+  )
+  const applyPreset = useCallback(
+    (name: string) => {
+      const preset = EQ_PRESETS[name]
+      if (preset) editBands(() => graphicBands(preset))
+    },
+    [editBands],
+  )
+  const updateEqBand = useCallback((id: string, patch: Partial<Omit<EqBand, 'id'>>) => editBands((l) => updateBand(l, id, patch)), [editBands])
+  const addEqBand = useCallback(
+    (band?: Partial<Omit<EqBand, 'id'>>) => {
+      const before = bandsRef.current
+      editBands((l) => addBand(l, band))
+      const after = bandsRef.current
+      return after === before ? null : (after[after.length - 1]?.id ?? null)
+    },
+    [editBands],
+  )
+  const removeEqBand = useCallback((id: string) => editBands((l) => removeBand(l, id)), [editBands])
+  const resetEq = useCallback(() => editBands(() => graphicBands()), [editBands])
+  const setEqRemembered = useCallback((on: boolean) => {
+    const id = eqKeyRef.current
+    if (!id) return
+    if (on) {
+      const copy = bandsRef.current.map((b) => ({ ...b }))
+      setTrackEq((m) => ({ ...m, [id]: copy }))
+    } else {
+      setTrackEq((m) => Object.fromEntries(Object.entries(m).filter(([key]) => key !== id)))
+    }
+  }, [])
   const saveEqPreset = useCallback((name: string) => setEqPresets((l) => savePreset(l, name, bandsRef.current)), [])
-  const loadEqPreset = useCallback((name: string) => {
-    const preset = findPreset(presetsRef.current, name)
-    if (preset) setEqBands(preset.bands.map((b) => ({ ...b })))
-  }, [])
+  const loadEqPreset = useCallback(
+    (name: string) => {
+      const preset = findPreset(presetsRef.current, name)
+      if (preset) editBands(() => preset.bands.map((b) => ({ ...b })))
+    },
+    [editBands],
+  )
   const deleteEqPreset = useCallback((name: string) => setEqPresets((l) => deletePreset(l, name)), [])
 
   // ---- spatial audio ----
@@ -467,6 +514,11 @@ export function usePlayer(): PlayerApi {
 
   // ---- reverb ----
   const setReverb = useCallback((patch: Partial<ReverbSettings>) => setReverbState((r) => mergeReverb(r, patch)), [])
+
+  // ---- dynamics, stereo, tone ----
+  const setDynamics = useCallback((patch: DynamicsPatch) => setDynamicsState((d) => mergeDynamics(d, patch)), [])
+  const setStereo = useCallback((patch: Partial<StereoSettings>) => setStereoState((s) => mergeStereo(s, patch)), [])
+  const setTone = useCallback((patch: Partial<ToneSettings>) => setToneState((t) => mergeTone(t, patch)), [])
 
   // ---- sleep timer ----
   const setSleep = useCallback(
@@ -513,7 +565,7 @@ export function usePlayer(): PlayerApi {
     let alive = true
     ;(async () => {
       try {
-        const [rows, order, pls, resume] = await Promise.all([db.getAllTracks(), db.getMeta('order'), db.getMeta('playlists'), db.getMeta('resume')])
+        const [rows, order, pls, resume, storedTrackEq] = await Promise.all([db.getAllTracks(), db.getMeta('order'), db.getMeta('playlists'), db.getMeta('resume'), db.getMeta('trackEq')])
         if (!alive) return
         const ids = Array.isArray(order) ? order : []
         const byId = new Map(rows.map((r) => [r.id, r]))
@@ -536,6 +588,9 @@ export function usePlayer(): PlayerApi {
           }
         }
         if (Array.isArray(pls)) setPlaylists(pls)
+        const remembered = normalizeTrackEq(storedTrackEq)
+        const known = new Set(rows.map((r) => r.id))
+        setTrackEq(Object.fromEntries(Object.entries(remembered).filter(([id]) => known.has(id))))
       } catch {
         /* no persistent storage available: run in-memory */
       } finally {
@@ -555,6 +610,9 @@ export function usePlayer(): PlayerApi {
     if (hydrated) db.setMeta('playlists', playlists).catch(() => {})
   }, [hydrated, playlists])
   useEffect(() => {
+    if (hydrated) db.setMeta('trackEq', trackEq).catch(() => {})
+  }, [hydrated, trackEq])
+  useEffect(() => {
     if (viewId !== 'all' && !playlists.some((p) => p.id === viewId)) setViewId('all')
   }, [viewId, playlists])
   useEffect(() => {
@@ -571,13 +629,13 @@ export function usePlayer(): PlayerApi {
     }
   }, [playing, saveResume])
   useEffect(() => {
-    const settings: Settings = { volume, muted, repeat, shuffle, transition, eqBands, eqPresets, eqOn, speed, preservePitch, normalize, spatial, reverb }
+    const settings: Settings = { volume, muted, repeat, shuffle, transition, eqBands: globalBands, eqPresets, eqOn, speed, preservePitch, normalize, spatial, reverb, dynamics, stereo, tone }
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
     } catch {
       /* ignore */
     }
-  }, [volume, muted, repeat, shuffle, transition, eqBands, eqPresets, eqOn, speed, preservePitch, normalize, spatial, reverb])
+  }, [volume, muted, repeat, shuffle, transition, globalBands, eqPresets, eqOn, speed, preservePitch, normalize, spatial, reverb, dynamics, stereo, tone])
 
   // a changed queue invalidates any preloaded "next" pick
   useEffect(() => {
@@ -719,6 +777,18 @@ export function usePlayer(): PlayerApi {
     engine.setReverb(reverb)
   }, [engine, reverb])
 
+  useEffect(() => {
+    engine.setDynamics(dynamics)
+  }, [engine, dynamics])
+
+  useEffect(() => {
+    engine.setStereo(stereo)
+  }, [engine, stereo])
+
+  useEffect(() => {
+    engine.setTone(tone)
+  }, [engine, tone])
+
   // ---- Media Session: lock screen, notification shade, remote / TV media keys ----
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
@@ -782,7 +852,7 @@ export function usePlayer(): PlayerApi {
 
   return {
     engine, tracks, queue, playlists, viewId, setViewId, current, currentId, playing, time, duration, volume, muted,
-    repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, normalize, setNormalize, eq, eqOn, setEqOn, setEqBand, applyPreset, eqBands, updateEqBand, addEqBand, removeEqBand, resetEq, eqPresets, saveEqPreset, loadEqPreset, deleteEqPreset, spatial, setSpatial, reverb, setReverb, sleepLeft, setSleep,
+    repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, normalize, setNormalize, eq, eqOn, setEqOn, setEqBand, applyPreset, eqBands, updateEqBand, addEqBand, removeEqBand, resetEq, eqRemembered, setEqRemembered, eqPresets, saveEqPreset, loadEqPreset, deleteEqPreset, spatial, setSpatial, reverb, setReverb, dynamics, setDynamics, stereo, setStereo, tone, setTone, sleepLeft, setSleep,
     loading, notice, hydrated,
     play, toggle, next: () => next(false), prev, seek, seekBy, setVolume, volumeBy, toggleMute,
     cycleRepeat, toggleShuffle, addFiles, attachLrc, remove, clear, reorder,

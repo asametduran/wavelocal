@@ -242,6 +242,17 @@ export function describeBand(band: EqBand): string {
   return parts.join(', ')
 }
 
+/** Validate the persisted per-track equalizer map: keep only entries with a usable band list. */
+export function normalizeTrackEq(raw: unknown): Record<string, EqBand[]> {
+  const out: Record<string, EqBand[]> = {}
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return out
+  for (const [id, value] of Object.entries(raw)) {
+    const bands = normalizeBands(value)
+    if (bands && id) out[id] = bands
+  }
+  return out
+}
+
 // ---- custom presets ----
 
 const sameName = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase()

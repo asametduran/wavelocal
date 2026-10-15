@@ -147,6 +147,26 @@ export default function EqSection({ p }: { p: PlayerApi }) {
         </button>
       </div>
 
+      {p.current && (
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-xl bg-white/5 px-3 py-2">
+          <div className="min-w-0">
+            <div className="text-sm text-zinc-200">Remember EQ for this track</div>
+            <div className="truncate text-xs text-zinc-500">
+              {p.eqRemembered ? `Using its own curve for "${p.current.title}" - other tracks keep the shared EQ.` : `Edits apply to every track without its own EQ. Turn on to give "${p.current.title}" its own curve.`}
+            </div>
+          </div>
+          <button
+            role="switch"
+            aria-checked={p.eqRemembered}
+            onClick={() => p.setEqRemembered(!p.eqRemembered)}
+            className={`relative h-7 w-12 shrink-0 rounded-full transition ${p.eqRemembered ? 'bg-accent' : 'bg-white/15'}`}
+            aria-label="Remember EQ for this track"
+          >
+            <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${p.eqRemembered ? 'left-6' : 'left-1'}`} />
+          </button>
+        </div>
+      )}
+
       {view === 'graphic' ? (
         graphic ? (
           <>

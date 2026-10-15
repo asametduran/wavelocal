@@ -30,6 +30,7 @@ import {
   normalizeBand,
   normalizeBands,
   normalizePresets,
+  normalizeTrackEq,
   posToFreq,
   removeBand,
   responseCurve,
@@ -333,6 +334,29 @@ describe('bandsEqual', () => {
     expect(bandsEqual(a, a.slice(1))).toBe(false)
     expect(bandsEqual(a, updateBand(a, 'g2', { q: 2 }))).toBe(false)
     expect(bandsEqual([], [])).toBe(true)
+  })
+})
+
+describe('normalizeTrackEq (per-track curves)', () => {
+  it('keeps valid curves keyed by track id', () => {
+    const out = normalizeTrackEq({ t1: graphicBands([1, 2]), t2: [band({ id: 'k', frequency: 300 })] })
+    expect(Object.keys(out)).toEqual(['t1', 't2'])
+    expect(out.t1).toHaveLength(10)
+    expect(out.t2?.[0]).toMatchObject({ id: 'k', frequency: 300 })
+  })
+
+  it('drops entries that are not band lists and clamps what it keeps', () => {
+    const out = normalizeTrackEq({ ok: [{ id: 'z', type: 'peaking', frequency: 1, q: 1, gain: 99 }], bad: 'x', worse: null, num: 4 })
+    expect(Object.keys(out)).toEqual(['ok'])
+    expect(out.ok?.[0]).toMatchObject({ frequency: FREQ_MIN, gain: GAIN_LIMIT })
+  })
+
+  it('keeps an empty curve (a flat equalizer is a valid override)', () => {
+    expect(normalizeTrackEq({ t: [] })).toEqual({ t: [] })
+  })
+
+  it('returns an empty map for anything that is not a plain object', () => {
+    for (const bad of [null, undefined, 5, 'x', [], [[]], true]) expect(normalizeTrackEq(bad)).toEqual({})
   })
 })
 

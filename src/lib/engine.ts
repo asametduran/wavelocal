@@ -1,9 +1,10 @@
 /** Web Audio DSP engine: two playback decks -> 10-band EQ -> analyser -> master fade -> speakers. */
-import type { EqBand, EqGains, ReverbSettings, SpatialSettings } from '../types'
+import type { DynamicsSettings, EqBand, EqGains, ReverbSettings, SpatialSettings, StereoSettings, ToneSettings } from '../types'
 import { bandTypeInfo, graphicBands } from './eq'
 import { DEFAULT_SPATIAL, ORBIT_HORIZON_SECONDS, azimuth, equalPowerMix, orbitAngle, orbitCurve, orbitPosition, orbitRadiusMeters, orbitRadiusPad, padToPosition } from './spatial'
 import type { Point2 } from './spatial'
 import { DEFAULT_REVERB, generateImpulseResponse, impulseKey } from './reverb'
+import { DEFAULT_DYNAMICS, DEFAULT_STEREO, DEFAULT_TONE, TONE_BASS_HZ, TONE_TREBLE_HZ, autoMakeupDb, dbToGain, msToSeconds, stereoMatrix } from './dynamics'
 
 export const EQ_FREQS: readonly number[] = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 export const EQ_LABELS: readonly string[] = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '16k']
@@ -52,6 +53,28 @@ interface ReverbNodes {
   routed: boolean
 }
 
+/** Tone shelves -> compressor (with bypass) -> 2x2 stereo matrix. */
+interface DynamicsNodes {
+  bass: BiquadFilterNode
+  treble: BiquadFilterNode
+  comp: DynamicsCompressorNode
+  makeup: GainNode
+  compBypass: GainNode
+  compThrough: GainNode
+  /** Matrix gains: left to left, left to right, right to left, right to right. */
+  ll: GainNode
+  lr: GainNode
+  rl: GainNode
+  rr: GainNode
+}
+
+/** Final limiter with a bypass path. */
+interface LimiterNodes {
+  limiter: DynamicsCompressorNode
+  bypass: GainNode
+  through: GainNode
+}
+
 /** Anchor of the current orbit: the angle at audio time `t0`, so any later position is a pure function of the clock. */
 interface Orbit {
   active: boolean
@@ -69,6 +92,7 @@ const SPATIAL_OFF_DELAY_MS = 180
 const REVERB_OFF_DELAY_MS = 250
 /** How long a removed band keeps running (fading to flat) before it leaves the chain. */
 const EQ_RETIRE_MS = 60
+const LIMITER_RATIO = 20
 /** Wait for slider drags to settle before synthesizing a new impulse response. */
 const REVERB_REBUILD_DEBOUNCE_MS = 120
 /** Time the wet signal is muted around an impulse swap so it cannot click. */
@@ -117,6 +141,12 @@ export class AudioEngine {
   private spatialNodes: SpatialNodes | null = null
   private spatialOffTimer: ReturnType<typeof setTimeout> | null = null
   private orbit: Orbit = { active: false, angle0: 0, t0: 0, seconds: DEFAULT_SPATIAL.orbitSeconds, radiusPad: 1, key: '', timer: null }
+  /** Latest dynamics, stereo and tone settings; applied to the graph as soon as (and whenever) it exists. */
+  dynamics: DynamicsSettings = { compressor: { ...DEFAULT_DYNAMICS.compressor }, limiter: { ...DEFAULT_DYNAMICS.limiter } }
+  stereo: StereoSettings = { ...DEFAULT_STEREO }
+  tone: ToneSettings = { ...DEFAULT_TONE }
+  private dynNodes: DynamicsNodes | null = null
+  private limNodes: LimiterNodes | null = null
   /** Latest reverb settings; applied to the graph as soon as (and whenever) it exists. */
   reverb: ReverbSettings = { ...DEFAULT_REVERB }
   private reverbNodes: ReverbNodes | null = null
@@ -183,8 +213,10 @@ export class AudioEngine {
         d.norm = norm
         d.gain = gain
       })
-      const tail = this.buildSpatial(ctx, eqOut)
-      this.buildReverb(ctx, tail, analyser)
+      const dynamicsOut = this.buildDynamics(ctx, eqOut)
+      const tail = this.buildSpatial(ctx, dynamicsOut)
+      const reverbOut = this.buildReverb(ctx, tail)
+      this.buildLimiter(ctx, reverbOut, analyser)
       this.ctx = ctx
       this.eqIn = eqIn
       this.eqBypass = eqBypass
@@ -192,8 +224,12 @@ export class AudioEngine {
       this.analyser = analyser
       this.master = master
       this.applyEq(true)
+      this.applyTone()
+      this.applyDynamics()
+      this.applyStereo()
       this.applySpatial()
       this.applyReverb()
+      this.applyLimiter()
       if (ctx.state !== 'running') ctx.resume().catch(() => {})
       return true
     } catch {
@@ -284,6 +320,157 @@ export class AudioEngine {
   setEqEnabled(on: boolean): void {
     this.eqOn = on
     this.applyEq()
+  }
+
+  // ---- tone, compressor, stereo width, limiter ----
+
+  /** Bass and treble shelves, then the compressor (bypassable), then the mid/side matrix. Returns the matrix output. */
+  private buildDynamics(ctx: AudioContext, input: AudioNode): AudioNode {
+    const bass = ctx.createBiquadFilter()
+    bass.type = 'lowshelf'
+    bass.frequency.value = TONE_BASS_HZ
+    const treble = ctx.createBiquadFilter()
+    treble.type = 'highshelf'
+    treble.frequency.value = TONE_TREBLE_HZ
+    input.connect(bass)
+    bass.connect(treble)
+
+    const comp = ctx.createDynamicsCompressor()
+    const makeup = ctx.createGain()
+    const compBypass = ctx.createGain()
+    const compThrough = ctx.createGain()
+    // These two feed the channel splitter, which would upmix a mono source discretely (left channel only).
+    // Speaker-style upmixing on the feeding nodes duplicates a mono source into both channels instead.
+    for (const g of [compBypass, compThrough]) {
+      g.channelCount = 2
+      g.channelCountMode = 'explicit'
+      g.channelInterpretation = 'speakers'
+    }
+    treble.connect(compBypass)
+    treble.connect(comp)
+    comp.connect(makeup)
+    makeup.connect(compThrough)
+    compBypass.gain.value = 1
+    compThrough.gain.value = 0
+
+    // mid/side width is a 2x2 matrix: left out = ll * L + rl * R, right out = lr * L + rr * R
+    const splitter = ctx.createChannelSplitter(2)
+    const merger = ctx.createChannelMerger(2)
+    compBypass.connect(splitter)
+    compThrough.connect(splitter)
+    const ll = ctx.createGain()
+    const lr = ctx.createGain()
+    const rl = ctx.createGain()
+    const rr = ctx.createGain()
+    splitter.connect(ll, 0)
+    splitter.connect(lr, 0)
+    splitter.connect(rl, 1)
+    splitter.connect(rr, 1)
+    ll.connect(merger, 0, 0)
+    rl.connect(merger, 0, 0)
+    lr.connect(merger, 0, 1)
+    rr.connect(merger, 0, 1)
+    ll.gain.value = 1
+    rr.gain.value = 1
+    lr.gain.value = 0
+    rl.gain.value = 0
+    this.dynNodes = { bass, treble, comp, makeup, compBypass, compThrough, ll, lr, rl, rr }
+    return merger
+  }
+
+  /** The last stage before the analyser: a fast, high-ratio compressor acting as a ceiling. */
+  private buildLimiter(ctx: AudioContext, input: AudioNode, analyser: AnalyserNode): void {
+    const limiter = ctx.createDynamicsCompressor()
+    limiter.knee.value = 0
+    limiter.ratio.value = LIMITER_RATIO
+    limiter.attack.value = 0.001
+    limiter.release.value = 0.1
+    const bypass = ctx.createGain()
+    const through = ctx.createGain()
+    input.connect(bypass)
+    input.connect(limiter)
+    limiter.connect(through)
+    bypass.connect(analyser)
+    through.connect(analyser)
+    bypass.gain.value = 1
+    through.gain.value = 0
+    this.limNodes = { limiter, bypass, through }
+  }
+
+  setTone(next: ToneSettings): void {
+    this.tone = next
+    this.applyTone()
+  }
+
+  setDynamics(next: DynamicsSettings): void {
+    this.dynamics = next
+    this.applyDynamics()
+    this.applyLimiter()
+  }
+
+  setStereo(next: StereoSettings): void {
+    this.stereo = next
+    this.applyStereo()
+  }
+
+  private applyTone(): void {
+    const n = this.dynNodes
+    const ctx = this.ctx
+    if (!n || !ctx) return
+    glideTo(n.bass.gain, this.tone.bass, ctx.currentTime, 0.02)
+    glideTo(n.treble.gain, this.tone.treble, ctx.currentTime, 0.02)
+  }
+
+  private applyDynamics(): void {
+    const n = this.dynNodes
+    const ctx = this.ctx
+    if (!n || !ctx) return
+    const c = this.dynamics.compressor
+    const t = ctx.currentTime
+    glideTo(n.comp.threshold, c.threshold, t, 0.02)
+    glideTo(n.comp.knee, c.knee, t, 0.02)
+    glideTo(n.comp.ratio, c.ratio, t, 0.02)
+    glideTo(n.comp.attack, msToSeconds(c.attack), t, 0.02)
+    glideTo(n.comp.release, msToSeconds(c.release), t, 0.02)
+    // the node adds its own make-up gain; trim it so the user make-up is the only gain added
+    glideTo(n.makeup.gain, dbToGain(c.makeup - autoMakeupDb(c)), t, 0.02)
+    glideTo(n.compBypass.gain, c.enabled ? 0 : 1, t, 0.015)
+    glideTo(n.compThrough.gain, c.enabled ? 1 : 0, t, 0.015)
+  }
+
+  private applyLimiter(): void {
+    const n = this.limNodes
+    const ctx = this.ctx
+    if (!n || !ctx) return
+    const l = this.dynamics.limiter
+    const t = ctx.currentTime
+    glideTo(n.limiter.threshold, l.ceiling, t, 0.02)
+    glideTo(n.bypass.gain, l.enabled ? 0 : 1, t, 0.015)
+    // same trim as the compressor, for a hard-knee 20:1 curve at the ceiling
+    const trim = dbToGain(-autoMakeupDb({ threshold: l.ceiling, ratio: LIMITER_RATIO, knee: 0 }))
+    glideTo(n.through.gain, l.enabled ? trim : 0, t, 0.015)
+  }
+
+  private applyStereo(): void {
+    const n = this.dynNodes
+    const ctx = this.ctx
+    if (!n || !ctx) return
+    const m = stereoMatrix(this.stereo.width, this.stereo.mono)
+    const t = ctx.currentTime
+    glideTo(n.ll.gain, m.ll, t, 0.02)
+    glideTo(n.lr.gain, m.lr, t, 0.02)
+    glideTo(n.rl.gain, m.rl, t, 0.02)
+    glideTo(n.rr.gain, m.rr, t, 0.02)
+  }
+
+  /** Current gain reduction of the compressor in dB (0 or negative); 0 while it is switched off. */
+  compressorReduction(): number {
+    return this.dynamics.compressor.enabled ? (this.dynNodes?.comp.reduction ?? 0) : 0
+  }
+
+  /** Current gain reduction of the limiter in dB (0 or negative); 0 while it is switched off. */
+  limiterReduction(): number {
+    return this.dynamics.limiter.enabled ? (this.limNodes?.limiter.reduction ?? 0) : 0
   }
 
   // ---- 3D spatial audio ----
@@ -445,8 +632,8 @@ export class AudioEngine {
 
   // ---- reverb ----
 
-  /** Create the pre-delay / convolver / dry-wet stage between the spatial stage and the analyser. */
-  private buildReverb(ctx: AudioContext, input: AudioNode, analyser: AnalyserNode): void {
+  /** Create the pre-delay / convolver / dry-wet stage after the spatial stage and return its output node. */
+  private buildReverb(ctx: AudioContext, input: AudioNode): AudioNode {
     const preDelay = ctx.createDelay(MAX_PRE_DELAY_S)
     const convolver = ctx.createConvolver()
     convolver.normalize = true // keeps loudness comparable across rooms and decay times (must be set before the buffer)
@@ -458,10 +645,10 @@ export class AudioEngine {
     preDelay.connect(convolver)
     convolver.connect(wet)
     wet.connect(out)
-    out.connect(analyser)
     dry.gain.value = 1
     wet.gain.value = 0
     this.reverbNodes = { input, preDelay, convolver, dry, wet, out, routed: false }
+    return out
   }
 
   /** Store new settings and apply them to the graph (if it exists yet). */

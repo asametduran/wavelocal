@@ -35,7 +35,8 @@ export const tone = (name: string, seconds = 0.1, frequency = 440): Upload => ({
 /**
  * Everything the page created that tests may want to inspect: playing media elements, EQ filters and gain nodes.
  * Gain order follows AudioEngine.init(): [master, eq.in, eq.bypass, eq.through, eq.out, deck0.norm, deck0.crossfade,
- * deck1.norm, deck1.crossfade, spatial.dry, spatial.wet, spatial.out, reverb.dry, reverb.wet, reverb.out].
+ * deck1.norm, deck1.crossfade, comp.makeup, comp.bypass, comp.through, matrix.ll, .lr, .rl, .rr, spatial.dry, spatial.wet,
+ * spatial.out, reverb.dry, reverb.wet, reverb.out, limiter.bypass, limiter.through].
  */
 export interface AudioProbe {
   media: Set<HTMLMediaElement>
@@ -46,6 +47,10 @@ export interface AudioProbe {
   delays: DelayNode[]
   /** Audio-node connections as the page made them (outgoing edges), so tests can walk the real signal path. */
   edges: Map<AudioNode, Set<AudioNode>>
+  /** Dynamics compressors in creation order: [compressor, limiter]. */
+  compressors: DynamicsCompressorNode[]
+  /** Analysers on the left and right channel of the very last node before the speakers. */
+  taps: { left: AnalyserNode; right: AnalyserNode } | null
 }
 
 declare global {
@@ -64,18 +69,30 @@ export const GAIN = {
   deck0Fade: 6,
   deck1Norm: 7,
   deck1Fade: 8,
-  spatialDry: 9,
-  spatialWet: 10,
-  spatialOut: 11,
-  reverbDry: 12,
-  reverbWet: 13,
-  reverbOut: 14,
+  compMakeup: 9,
+  compBypass: 10,
+  compThrough: 11,
+  matrixLL: 12,
+  matrixLR: 13,
+  matrixRL: 14,
+  matrixRR: 15,
+  spatialDry: 16,
+  spatialWet: 17,
+  spatialOut: 18,
+  reverbDry: 19,
+  reverbWet: 20,
+  reverbOut: 21,
+  limiterBypass: 22,
+  limiterThrough: 23,
 } as const
+
+/** The bass and treble shelves are created before the equalizer bands, so band filters start at this probe index. */
+const TONE_FILTERS = 2
 
 /** Record media elements and audio nodes created by the app (must run before the page loads). */
 export async function installAudioProbe(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const probe: AudioProbe = { media: new Set(), filters: [], gains: [], panners: [], convolvers: [], delays: [], edges: new Map() }
+    const probe: AudioProbe = { media: new Set(), filters: [], gains: [], panners: [], convolvers: [], delays: [], edges: new Map(), compressors: [], taps: null }
     window.__probe = probe
     const play = HTMLMediaElement.prototype.play
     HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
@@ -98,7 +115,21 @@ export async function installAudioProbe(page: Page): Promise<void> {
         out.add(destination)
         probe.edges.set(this, out)
       }
-      return connect.call(this, destination, output, input)
+      const result = connect.call(this, destination, output, input)
+      if (destination instanceof AudioDestinationNode && !probe.taps) {
+        // listen to what really reaches the speakers: one analyser per channel
+        const ctx = destination.context
+        const splitter = ctx.createChannelSplitter(2)
+        const left = ctx.createAnalyser()
+        const right = ctx.createAnalyser()
+        left.fftSize = 4096
+        right.fftSize = 4096
+        connect.call(this, splitter)
+        connect.call(splitter, left, 0)
+        connect.call(splitter, right, 1)
+        probe.taps = { left, right }
+      }
+      return result
     } as typeof AudioNode.prototype.connect
     AudioNode.prototype.disconnect = function (this: AudioNode, destination?: AudioNode | AudioParam | number) {
       if (destination === undefined || typeof destination === 'number') probe.edges.delete(this)
@@ -109,6 +140,12 @@ export async function installAudioProbe(page: Page): Promise<void> {
     AudioContext.prototype.createPanner = function (this: AudioContext) {
       const node = panner.call(this)
       probe.panners.push(node)
+      return node
+    }
+    const compressor = AudioContext.prototype.createDynamicsCompressor
+    AudioContext.prototype.createDynamicsCompressor = function (this: AudioContext) {
+      const node = compressor.call(this)
+      probe.compressors.push(node)
       return node
     }
     const convolver = AudioContext.prototype.createConvolver
@@ -254,7 +291,7 @@ export class PlayerPage {
 
   /** Current value of a filter band's gain AudioParam (dB). */
   async filterGain(band: number): Promise<number> {
-    return this.page.evaluate((i) => window.__probe.filters[i]?.gain.value ?? Number.NaN, band)
+    return this.page.evaluate(([i, offset]) => window.__probe.filters[(i as number) + (offset as number)]?.gain.value ?? Number.NaN, [band, TONE_FILTERS] as const)
   }
 
   /** Current value of a gain node by its index in creation order (see GAIN). */
@@ -351,6 +388,68 @@ export class PlayerPage {
       },
       [GAIN.eqIn, GAIN.eqThrough, frequencies] as const,
     )
+  }
+
+  /** Compressor and limiter parameter values plus their current gain reduction. */
+  async compressorState(index: 0 | 1): Promise<{ threshold: number; ratio: number; knee: number; attack: number; release: number; reduction: number } | null> {
+    return this.page.evaluate((i) => {
+      const c = window.__probe.compressors[i]
+      return c ? { threshold: c.threshold.value, ratio: c.ratio.value, knee: c.knee.value, attack: c.attack.value, release: c.release.value, reduction: c.reduction } : null
+    }, index)
+  }
+
+  /** Response (dB) of the bass and treble tone shelves at the given frequencies. */
+  async toneResponseDb(frequencies: number[]): Promise<{ bass: number[]; treble: number[] }> {
+    return this.page.evaluate((freqs) => {
+      const [bass, treble] = window.__probe.filters
+      const f32 = Float32Array.from(freqs)
+      const measure = (node: BiquadFilterNode | undefined) => {
+        const mag = new Float32Array(f32.length)
+        const phase = new Float32Array(f32.length)
+        node?.getFrequencyResponse(f32, mag, phase)
+        return Array.from(mag, (m) => 20 * Math.log10(m))
+      }
+      return { bass: measure(bass), treble: measure(treble) }
+    }, frequencies)
+  }
+
+  /** RMS and peak of the real output, per channel, in dBFS (the last ~90 ms). */
+  async outputLevels(): Promise<{ leftRms: number; rightRms: number; leftPeak: number; rightPeak: number }> {
+    return this.page.evaluate(() => {
+      const taps = window.__probe.taps
+      const level = (a: AnalyserNode | undefined) => {
+        if (!a) return { rms: -Infinity, peak: -Infinity }
+        const data = new Float32Array(a.fftSize)
+        a.getFloatTimeDomainData(data)
+        let sum = 0
+        let peak = 0
+        for (const v of data) {
+          sum += v * v
+          peak = Math.max(peak, Math.abs(v))
+        }
+        return { rms: 20 * Math.log10(Math.sqrt(sum / data.length)), peak: 20 * Math.log10(peak) }
+      }
+      const l = level(taps?.left)
+      const r = level(taps?.right)
+      return { leftRms: l.rms, rightRms: r.rms, leftPeak: l.peak, rightPeak: r.peak }
+    })
+  }
+
+  /** Spectrum of the real output at the given frequencies (dB, strongest of the three nearest bins), per channel. */
+  async outputSpectrumDb(frequencies: number[]): Promise<{ left: number[]; right: number[] }> {
+    return this.page.evaluate((freqs) => {
+      const taps = window.__probe.taps
+      const read = (a: AnalyserNode | undefined) => {
+        if (!a) return freqs.map(() => -Infinity)
+        const bins = new Float32Array(a.frequencyBinCount)
+        a.getFloatFrequencyData(bins)
+        return freqs.map((f) => {
+          const centre = Math.round((f / (a.context.sampleRate / 2)) * a.frequencyBinCount)
+          return Math.max(bins[centre - 1] ?? -Infinity, bins[centre] ?? -Infinity, bins[centre + 1] ?? -Infinity)
+        })
+      }
+      return { left: read(taps?.left), right: read(taps?.right) }
+    }, frequencies)
   }
 
   /** How many media elements are currently playing (2 during a crossfade overlap). */
