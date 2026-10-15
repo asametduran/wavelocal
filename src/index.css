@@ -21,11 +21,11 @@ body {
 
 /* Keyboard / D-pad focus ring on everything interactive */
 :focus { outline: none; }
-:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; border-radius: 8px; }
+:focus-visible { outline: 2px solid var(--accent-hex, #a78bfa); outline-offset: 2px; border-radius: 8px; }
 
 input[type=range].slider {
   -webkit-appearance: none; appearance: none; height: 4px; border-radius: 999px; outline: none; cursor: pointer;
-  background: linear-gradient(to right, #a78bfa var(--p, 0%), #2e2e40 var(--p, 0%));
+  background: linear-gradient(to right, var(--accent-hex, #a78bfa) var(--p, 0%), #2e2e40 var(--p, 0%));
   touch-action: pan-y;
 }
 input[type=range].slider::-webkit-slider-thumb {

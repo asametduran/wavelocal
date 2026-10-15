@@ -3,6 +3,7 @@ import { Loader2, Upload } from 'lucide-react'
 import { usePlayer } from './hooks/usePlayer'
 import { useHotkeys } from './hooks/useHotkeys'
 import { useTvMode } from './hooks/useTvMode'
+import { useTheme } from './hooks/useTheme'
 import Playlist from './components/Playlist'
 import NowPlaying from './components/NowPlaying'
 import NowPlayingSheet from './components/NowPlayingSheet'
@@ -13,6 +14,7 @@ import PlayerBar, { MiniBar } from './components/PlayerBar'
 export default function App() {
   const p = usePlayer()
   const [tv, setTv] = useTvMode()
+  const [accent, setAccent] = useTheme()
   const fileInput = useRef(null)
   const folderInput = useRef(null)
   const searchRef = useRef(null)
@@ -123,7 +125,7 @@ export default function App() {
 
       <NowPlayingSheet p={p} open={nowOpen} onClose={() => setNowOpen(false)} onOpenQueue={() => setQueueOpen(true)} onOpenTools={() => setToolsOpen(true)} />
       <QueueSheet p={p} open={queueOpen} onClose={() => setQueueOpen(false)} onPickFiles={pickFiles} onPickFolder={pickFolder} />
-      <ToolsModal p={p} open={toolsOpen} onClose={() => setToolsOpen(false)} />
+      <ToolsModal p={p} accent={accent} setAccent={setAccent} open={toolsOpen} onClose={() => setToolsOpen(false)} />
 
       {p.notice && (
         <div className="fixed inset-x-0 bottom-24 z-[70] mx-auto w-fit max-w-[90vw] animate-fadeIn rounded-full bg-raised px-5 py-2.5 text-sm shadow-lg ring-1 ring-white/10" role="status">

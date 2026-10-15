@@ -1,4 +1,5 @@
-import { Moon, Gauge, Shuffle as Blend, SlidersHorizontal, Volume2, X } from 'lucide-react'
+import { Moon, Gauge, Palette, Shuffle as Blend, SlidersHorizontal, Volume2, X } from 'lucide-react'
+import { ACCENT_PRESETS, DEFAULT_ACCENT } from '../hooks/useTheme'
 import { EQ_LABELS, EQ_MAX_DB, EQ_PRESETS } from '../lib/engine'
 
 const TIMERS = [15, 30, 45, 60]
@@ -14,7 +15,7 @@ const chip = (on) =>
   `rounded-full px-4 py-2 text-sm font-semibold transition ${on ? 'bg-accent text-black' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
 
 /** Equalizer, sleep timer and transition settings. Bottom sheet on phones, centered dialog elsewhere. */
-export default function ToolsModal({ p, open, onClose }) {
+export default function ToolsModal({ p, open, onClose, accent, setAccent }) {
   if (!open) return null
   const activePreset = Object.keys(EQ_PRESETS).find((k) => same(EQ_PRESETS[k], p.eq))
   const mode = MODES.find((m) => m[0] === p.transition) || MODES[0]
@@ -114,6 +115,33 @@ export default function ToolsModal({ p, open, onClose }) {
             </button>
           </label>
           <p className="mt-2 text-xs text-zinc-500">Off gives a vinyl-style pitch shift as speed changes.</p>
+        </section>
+
+        <section aria-label="Accent color" className="mt-6">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
+              <Palette size={15} /> Accent color
+            </h3>
+            <button onClick={() => setAccent(DEFAULT_ACCENT)} disabled={accent === DEFAULT_ACCENT} className={`${chip(false)} !py-1 disabled:opacity-40`}>
+              Reset
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {ACCENT_PRESETS.map(([name, hex]) => (
+              <button
+                key={hex}
+                onClick={() => setAccent(hex)}
+                aria-label={name}
+                aria-pressed={accent === hex}
+                className={`h-9 w-9 rounded-full border-2 transition ${accent === hex ? 'border-white' : 'border-transparent'}`}
+                style={{ background: hex }}
+              />
+            ))}
+            <label className="flex items-center gap-2 text-sm text-zinc-300">
+              <input type="color" value={accent} onChange={(e) => setAccent(e.target.value)} aria-label="Custom accent color" className="h-9 w-12 cursor-pointer rounded bg-transparent" />
+              Custom
+            </label>
+          </div>
         </section>
 
         <section aria-label="Sleep timer" className="mt-6">

@@ -33,7 +33,7 @@ export default function Visualizer({ engine, playing, className = '' }) {
       g.clearRect(0, 0, w, h)
       const an = playing ? engine.analyser : null
       const grad = g.createLinearGradient(0, h, 0, 0)
-      grad.addColorStop(0, '#a78bfa')
+      grad.addColorStop(0, getComputedStyle(document.documentElement).getPropertyValue('--accent-hex').trim() || '#a78bfa')
       grad.addColorStop(1, '#ec4899')
       let alive = false
 
