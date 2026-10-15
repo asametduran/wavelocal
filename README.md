@@ -102,6 +102,8 @@ The shell adds a **system tray**: a now-playing tooltip, and a menu with play/pa
 
 **Global media hotkeys** work even while the window is hidden: the media keys (play/pause, next, previous) are bound by default, and volume up/down and mute can be bound in *Sound & tools → Global hotkeys* by pressing the key combination you want. Shortcuts that would interfere with typing or belong to the system (for example `Ctrl+C`) are refused, as are duplicates and shortcuts another application already owns; a refused change keeps the previous shortcut.
 
+**Windows installer.** `npm run desktop:dist` builds `desktop/release/Wavelocal-Setup-<version>-x64.exe` with electron-builder (an NSIS installer: per-user install, choose the folder, desktop and Start-menu shortcuts, no admin rights needed) and then verifies it: the installer exists, the web build is bundled under `resources/web`, and the asar holds the compiled shell without tests or source maps. `npm run desktop:pack` makes only the unpacked app (faster; it is what the packaged-app smoke test in `desktop/e2e/packaged.spec.ts` launches). The config is `desktop/electron-builder.config.cjs`, and `.github/workflows/desktop-installer.yml` runs the whole thing on `windows-latest`, smoke-tests the packaged app and uploads the installer as a build artifact (on `v*` tags it is also attached to the draft release). The installer is **unsigned**, so Windows SmartScreen warns on first run; the app has no auto-updater and never touches the network.
+
 The page can detect the shell through `getDesktopBridge()` (`src/desktop-bridge.ts`); it is `null` in browsers and on Android.
 
 ## Architecture

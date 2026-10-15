@@ -17,7 +17,9 @@
     "desktop:build": "npm run build && npm --prefix desktop run build",
     "desktop:start": "npm run build && npm --prefix desktop run start",
     "desktop:test": "npm run desktop:build && playwright test -c desktop",
-    "typecheck:desktop": "npm --prefix desktop run typecheck"
+    "typecheck:desktop": "npm --prefix desktop run typecheck",
+    "desktop:dist": "npm run build && npm --prefix desktop run dist",
+    "desktop:pack": "npm run build && npm --prefix desktop run pack"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",

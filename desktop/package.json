@@ -8,14 +8,19 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "start": "npm run build && electron .",
-    "dev": "node scripts/dev.mjs"
+    "dev": "node scripts/dev.mjs",
+    "pack": "npm run build && electron-builder --config electron-builder.config.cjs --win --x64 --dir",
+    "dist": "npm run build && electron-builder --config electron-builder.config.cjs --win --x64 --publish never && node scripts/verify-package.mjs",
+    "verify:package": "node scripts/verify-package.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "electron": "^39.0.0",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.9.0"
   },
   "allowScripts": {
     "electron@39.8.10": true
-  }
+  },
+  "author": "Wavelocal"
 }
