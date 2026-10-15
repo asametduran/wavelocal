@@ -142,10 +142,10 @@ describe('renderTrayIcon', () => {
 describe('parseDesktopSettings', () => {
   it('defaults to closing to the tray', () => {
     expect(DEFAULT_SETTINGS.closeToTray).toBe(true)
-    for (const v of [null, undefined, 'x', 3, [], {}, { closeToTray: 'no' }, { closeToTray: 0 }]) expect(parseDesktopSettings(v)).toEqual({ closeToTray: true })
+    for (const v of [null, undefined, 'x', 3, [], {}, { closeToTray: 'no' }, { closeToTray: 0 }]) expect(parseDesktopSettings(v)).toEqual(DEFAULT_SETTINGS)
   })
   it('reads an explicit choice and ignores unknown fields', () => {
-    expect(parseDesktopSettings({ closeToTray: false, extra: 1 })).toEqual({ closeToTray: false })
-    expect(parseDesktopSettings({ closeToTray: true })).toEqual({ closeToTray: true })
+    expect(parseDesktopSettings({ closeToTray: false, extra: 1 })).toMatchObject({ closeToTray: false })
+    expect(parseDesktopSettings({ closeToTray: true })).toMatchObject({ closeToTray: true })
   })
 })

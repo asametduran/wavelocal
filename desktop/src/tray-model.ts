@@ -1,6 +1,6 @@
 import type { MenuItemConstructorOptions } from 'electron'
-import { TRAY_COMMANDS } from './ipc'
-import type { NowPlaying, TrayCommand } from './ipc'
+import { DESKTOP_COMMANDS } from './ipc'
+import type { NowPlaying, DesktopCommand } from './ipc'
 
 /** The pure part of the tray: what to show for a given state. Everything here is unit tested without Electron. */
 
@@ -45,8 +45,8 @@ export function parseNowPlaying(raw: unknown): NowPlaying {
   return { title, artist: cleanText(r.artist), playing: r.playing === true }
 }
 
-export function parseCommand(raw: unknown): TrayCommand | null {
-  return TRAY_COMMANDS.find((c) => c === raw) ?? null
+export function parseCommand(raw: unknown): DesktopCommand | null {
+  return DESKTOP_COMMANDS.find((c) => c === raw) ?? null
 }
 
 const clip = (text: string, limit: number): string => (text.length <= limit ? text : `${text.slice(0, limit - 1).trimEnd()}…`)
@@ -67,7 +67,7 @@ export interface TrayView {
 }
 
 export interface TrayActions {
-  command(command: TrayCommand): void
+  command(command: DesktopCommand): void
   toggleWindow(): void
   setCloseToTray(value: boolean): void
   quit(): void

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 // the web app's package is an ES module while this (sandboxed) preload must be CommonJS: say which flavour of types we mean
-import type { DesktopBridge, NowPlaying, TrayCommand } from '../../src/desktop-bridge.js' with { 'resolution-mode': 'import' }
+import type { DesktopBridge, DesktopCommand, HotkeyResult, HotkeyState, NowPlaying } from '../../src/desktop-bridge.js' with { 'resolution-mode': 'import' }
 import type { CHANNEL } from './ipc'
 
 /**
@@ -13,7 +13,10 @@ import type { CHANNEL } from './ipc'
 
 const NOW_PLAYING: typeof CHANNEL.nowPlaying = 'wavelocal:now-playing'
 const COMMAND: typeof CHANNEL.command = 'wavelocal:command'
-const COMMANDS: readonly TrayCommand[] = ['toggle', 'next', 'prev']
+const HOTKEYS_GET: typeof CHANNEL.hotkeysGet = 'wavelocal:hotkeys-get'
+const HOTKEYS_SET: typeof CHANNEL.hotkeysSet = 'wavelocal:hotkeys-set'
+const HOTKEYS_RESET: typeof CHANNEL.hotkeysReset = 'wavelocal:hotkeys-reset'
+const COMMANDS: readonly DesktopCommand[] = ['toggle', 'next', 'prev', 'volumeUp', 'volumeDown', 'mute']
 
 const argument = (name: string): string | undefined => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3)
 
@@ -30,7 +33,9 @@ const bridge: DesktopBridge = Object.freeze({
       // send a plain copy, never the page's own object
       ipcRenderer.send(NOW_PLAYING, state ? { title: String(state.title), artist: String(state.artist), playing: state.playing === true } : null)
     },
-    onCommand(listener: (command: TrayCommand) => void): () => void {
+  }),
+  commands: Object.freeze({
+    onCommand(listener: (command: DesktopCommand) => void): () => void {
       const handler = (_event: unknown, command: unknown) => {
         const known = COMMANDS.find((c) => c === command)
         if (known) listener(known)
@@ -38,6 +43,12 @@ const bridge: DesktopBridge = Object.freeze({
       ipcRenderer.on(COMMAND, handler)
       return () => void ipcRenderer.removeListener(COMMAND, handler)
     },
+  }),
+  hotkeys: Object.freeze({
+    get: (): Promise<HotkeyState> => ipcRenderer.invoke(HOTKEYS_GET) as Promise<HotkeyState>,
+    set: (command: DesktopCommand, accelerator: string | null): Promise<HotkeyResult> =>
+      ipcRenderer.invoke(HOTKEYS_SET, String(command), accelerator === null ? null : String(accelerator)) as Promise<HotkeyResult>,
+    reset: (): Promise<HotkeyState> => ipcRenderer.invoke(HOTKEYS_RESET) as Promise<HotkeyState>,
   }),
 })
 

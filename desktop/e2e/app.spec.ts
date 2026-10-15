@@ -49,7 +49,7 @@ test('exposes only the frozen desktop bridge', async () => {
     return b ? { isDesktop: b.isDesktop, platform: b.platform, versions: b.versions, frozen: Object.isFrozen(b), keys: Object.keys(b).sort() } : null
   })
   expect(bridge).not.toBeNull()
-  expect(bridge).toMatchObject({ isDesktop: true, platform: process.platform, frozen: true, keys: ['isDesktop', 'platform', 'tray', 'versions'] })
+  expect(bridge).toMatchObject({ isDesktop: true, platform: process.platform, frozen: true, keys: ['commands', 'hotkeys', 'isDesktop', 'platform', 'tray', 'versions'] })
   expect(bridge?.versions.electron).toBeTruthy()
 })
 

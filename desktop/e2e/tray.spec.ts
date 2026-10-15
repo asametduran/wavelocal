@@ -110,7 +110,7 @@ test('"Close to tray" can be turned off, is remembered, and then closing quits',
         return null
       }
     })
-    .toEqual({ closeToTray: false })
+    .toMatchObject({ closeToTray: false })
 
   const closed = app.waitForEvent('close')
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close())

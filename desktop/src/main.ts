@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, protocol, screen, session } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, protocol, screen, session } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -7,11 +7,12 @@ import { APP_SCHEME, APP_URL, buildCsp, isAllowedNavigation, isAllowedRequest, m
 import { DEFAULT_WINDOW, MIN_WINDOW, fitToDisplays, parseWindowState, snapshotWindowState } from './window-state'
 import type { WindowState } from './window-state'
 import { CHANNEL } from './ipc'
-import type { TrayCommand } from './ipc'
+import type { DesktopCommand } from './ipc'
 import { DEFAULT_SETTINGS, parseDesktopSettings } from './settings'
 import type { DesktopSettings } from './settings'
 import { TrayController } from './tray'
-import { parseNowPlaying } from './tray-model'
+import { parseCommand, parseNowPlaying } from './tray-model'
+import { HotkeyManager } from './hotkeys'
 
 /**
  * Wavelocal desktop shell. It only hosts the built web app: all audio, library and settings logic lives in the web
@@ -145,6 +146,7 @@ function buildMenu(): Menu {
 
 let mainWindow: BrowserWindow | null = null
 let tray: TrayController | null = null
+let hotkeys: HotkeyManager | null = null
 let quitting = false
 
 const windowShown = () => !!mainWindow?.isVisible() && !mainWindow.isMinimized()
@@ -156,12 +158,17 @@ function showWindow(): void {
   mainWindow.focus()
 }
 
+/** Hand a tray or hotkey command to the page. Hotkeys work while the window is hidden: it is only hidden, never suspended. */
+function sendCommand(command: DesktopCommand): void {
+  mainWindow?.webContents.send(CHANNEL.command, command)
+}
+
 function createTray(): TrayController | null {
   try {
     return new TrayController({
       isWindowVisible: windowShown,
       getCloseToTray: () => settings.closeToTray,
-      command: (command: TrayCommand) => mainWindow?.webContents.send(CHANNEL.command, command),
+      command: sendCommand,
       toggleWindow: () => (windowShown() ? mainWindow?.hide() : showWindow()),
       setCloseToTray: (value) => {
         settings = { ...settings, closeToTray: value }
@@ -175,12 +182,47 @@ function createTray(): TrayController | null {
   }
 }
 
+function createHotkeys(): HotkeyManager {
+  const manager = new HotkeyManager(globalShortcut, sendCommand)
+  manager.apply(settings.hotkeys)
+  return manager
+}
+
+/** Remember the bindings the manager holds now. */
+function saveHotkeys(manager: HotkeyManager): void {
+  settings = { ...settings, hotkeys: manager.current }
+  saveSettings()
+}
+
 /** Messages from the page are only honoured from the app's own top-level frame. */
+function fromAppFrame(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean {
+  const frame = event.senderFrame
+  return !!frame && frame === mainWindow?.webContents.mainFrame && isAllowedNavigation(frame.url, devOrigin)
+}
+
 function registerIpc(): void {
   ipcMain.on(CHANNEL.nowPlaying, (event, raw: unknown) => {
-    const frame = event.senderFrame
-    if (!frame || frame !== mainWindow?.webContents.mainFrame || !isAllowedNavigation(frame.url, devOrigin)) return
+    if (!fromAppFrame(event)) return
     tray?.setNowPlaying(parseNowPlaying(raw))
+  })
+
+  // without a hotkey manager (it cannot be created) the page gets nothing: the preload's promises reject
+  ipcMain.handle(CHANNEL.hotkeysGet, (event) => {
+    if (!fromAppFrame(event) || !hotkeys) throw new Error('not available')
+    return hotkeys.retryTaken()
+  })
+  ipcMain.handle(CHANNEL.hotkeysSet, (event, rawCommand: unknown, accelerator: unknown) => {
+    const command = parseCommand(rawCommand)
+    if (!fromAppFrame(event) || !hotkeys || !command) throw new Error('not available')
+    const result = hotkeys.set(command, accelerator)
+    if (result.ok) saveHotkeys(hotkeys)
+    return result
+  })
+  ipcMain.handle(CHANNEL.hotkeysReset, (event) => {
+    if (!fromAppFrame(event) || !hotkeys) throw new Error('not available')
+    const state = hotkeys.reset()
+    saveHotkeys(hotkeys)
+    return state
   })
 }
 
@@ -257,6 +299,7 @@ if (!app.requestSingleInstanceLock()) {
     Menu.setApplicationMenu(buildMenu())
     settings = loadSettings()
     tray = createTray()
+    hotkeys = createHotkeys()
     registerIpc()
     mainWindow = createWindow()
     if (!app.isPackaged && process.env.WAVELOCAL_TEST === '1') exposeTestHooks()
@@ -264,6 +307,11 @@ if (!app.requestSingleInstanceLock()) {
       if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow()
       else showWindow()
     })
+  })
+
+  app.on('will-quit', () => {
+    hotkeys?.dispose()
+    globalShortcut.unregisterAll()
   })
 
   app.on('window-all-closed', () => {
@@ -278,6 +326,8 @@ function exposeTestHooks(): void {
     tray: () => (tray ? { tooltip: tray.tooltip, menu: tray.menuLabels } : null),
     activate: (label: string) => tray?.activate(label) ?? false,
     settings: () => ({ ...settings }),
+    hotkeys: () => hotkeys?.state() ?? null,
+    press: (accelerator: string) => hotkeys?.press(accelerator) ?? false,
     windowVisible: () => windowShown(),
   }
 }
