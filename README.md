@@ -65,7 +65,11 @@ In TV mode arrow keys move focus (D-pad) instead of seeking; use the focused see
 npm install && npm run dev
 ```
 
-Production build: `npm run build` (output in `dist/`, deployable to any static host), preview with `npm run preview`.
+Production build: `npm run build` type-checks first, then bundles (output in `dist/`, deployable to any static host); preview with `npm run preview`.
+
+### TypeScript
+
+The whole app is TypeScript with `strict`, `noUncheckedIndexedAccess` and `noImplicitReturns` enabled (`tsconfig.json`, `noEmit`; Vite does the transpiling). Run `npm run typecheck` for a standalone check. `npm run build` runs it automatically, so a type error fails the build and the Android CI job. Shared domain types (`Track`, `Playlist`, `Lyrics`, `Settings`, `PlayerApi`) live in `src/types.ts`.
 
 ## Architecture
 

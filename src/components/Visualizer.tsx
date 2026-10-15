@@ -59,12 +59,13 @@ export default function Visualizer({ engine, playing, className = '' }: Visualiz
             const lo = Math.floor(Math.pow(i / BARS, 1.7) * usable) + 1
             const hi = Math.max(lo + 1, Math.floor(Math.pow((i + 1) / BARS, 1.7) * usable) + 1)
             let sum = 0
-            for (let k = lo; k < hi; k++) sum += bins[k]
+            for (let k = lo; k < hi; k++) sum += bins[k] ?? 0
             v = sum / (hi - lo) / 255
           }
-          levels[i] = Math.max(v, levels[i] * 0.86)
-          if (levels[i] > 0.01) alive = true
-          const bh = Math.max(2, levels[i] * h)
+          const level = Math.max(v, (levels[i] ?? 0) * 0.86)
+          levels[i] = level
+          if (level > 0.01) alive = true
+          const bh = Math.max(2, level * h)
           const x = i * (bw + gap)
           g.beginPath()
           g.roundRect ? g.roundRect(x, h - bh, bw, bh, Math.min(bw / 2, 3)) : g.rect(x, h - bh, bw, bh)
@@ -83,7 +84,7 @@ export default function Visualizer({ engine, playing, className = '' }: Visualiz
         const n = 256
         for (let i = 0; i < n; i++) {
           const x = (i / (n - 1)) * w
-          const v = an ? (wave[Math.floor((i / n) * wave.length)] - 128) / 128 : 0
+          const v = an ? ((wave[Math.floor((i / n) * wave.length)] ?? 128) - 128) / 128 : 0
           const y = h / 2 + v * (h / 2) * 0.9
           i ? g.lineTo(x, y) : g.moveTo(x, y)
         }

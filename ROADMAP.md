@@ -20,7 +20,7 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - [x] A2. Migrate `src/lib/*` (engine, lrc, db, metadata, loudness, format, theme) to `.ts` with precise types, no `any`
 - [x] A3. Migrate `src/hooks/*` (usePlayer, useHotkeys, useTvMode, useSwipe) to `.ts`; type the player API returned by `usePlayer`
 - [x] A4. Migrate all components and entry points to `.tsx`; typed props everywhere
-- [ ] A5. Turn on full strictness (`strict`, `noUncheckedIndexedAccess`, `noImplicitReturns`), get `npm run typecheck` to zero errors, make `npm run build` run the typecheck first, document in README
+- [x] A5. Turn on full strictness (`strict`, `noUncheckedIndexedAccess`, `noImplicitReturns`), get `npm run typecheck` to zero errors, make `npm run build` run the typecheck first, document in README
 
 ### Pack B - Automated headless testing with synthetic audio
 - [ ] B1. Vitest + jsdom setup (`npm test`); unit tests for `lrc`, `format`, `loudness` (gainFromSamples), metadata pairing and ReplayGain parsing, queue/next/prev/shuffle logic extracted into pure functions
@@ -84,3 +84,4 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - A2: migrated `src/lib/*` to strictly typed TypeScript (no `any`), added jsmediatags typings; theme logic lives in `hooks/useTheme` and migrates with A3.
 - A3: migrated all hooks to TypeScript and typed the `usePlayer` return value as `PlayerApi` in `src/types.ts`.
 - A4: migrated all components and entry points to `.tsx` with typed props; added a React typings augmentation for folder inputs.
+- A5: enabled full strictness (noUncheckedIndexedAccess, noImplicitReturns), build now typechecks first, README documents it; fixed Tailwind content globs to include .ts/.tsx (A4 had purged styles).
