@@ -1,4 +1,3 @@
-import jsmediatags from 'jsmediatags/dist/jsmediatags.min.js'
 import type { Picture, Tags, TxxxFrame, TxxxPayload } from 'jsmediatags/dist/jsmediatags.min.js'
 import type { Lyrics, Track, TrackRecord } from '../types'
 import { parseLrc } from './lrc'
@@ -24,14 +23,19 @@ export const fileKey = (f: File): string => `${f.name}|${f.size}|${f.lastModifie
 export const relativePathOf = (f: File): string => f.webkitRelativePath || ''
 const newId = (): string => `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
 
-function readTags(file: File): Promise<Tags> {
-  return new Promise((resolve) => {
-    try {
+/** The tag reader is only needed once files are imported, so it loads on demand instead of weighing down startup. */
+let tagReader: Promise<typeof import('jsmediatags/dist/jsmediatags.min.js').default> | null = null
+const loadTagReader = () => (tagReader ??= import('jsmediatags/dist/jsmediatags.min.js').then((m) => m.default))
+
+async function readTags(file: File): Promise<Tags> {
+  try {
+    const jsmediatags = await loadTagReader()
+    return await new Promise<Tags>((resolve) => {
       jsmediatags.read(file, { onSuccess: (r) => resolve(r.tags || {}), onError: () => resolve({}) })
-    } catch {
-      resolve({})
-    }
-  })
+    })
+  } catch {
+    return {}
+  }
 }
 
 function pictureBlob(picture: Picture | undefined): Blob | null {
@@ -61,14 +65,36 @@ export function replayGainDb(tags: Tags | null | undefined): number | null {
   return Number.isFinite(db) ? Math.round(Math.max(-12, Math.min(12, db)) * 10) / 10 : null
 }
 
-/** Add object URLs to a persisted/new record so the audio element and <img> can use it. */
+/** Object URLs a lazy track has created so far (so revoking never creates one just to free it). */
+interface MintedUrls {
+  url?: string
+  cover?: string
+}
+const minted = new WeakMap<object, MintedUrls>()
+
+/**
+ * Add object URLs to a persisted/new record so the audio element and <img> can use it.
+ * The URLs are minted on first read: a 10,000-track library registers a handful of blob URLs (the rows on screen and
+ * the playing track) instead of 20,000 at startup. Reading `url` or `cover` is otherwise indistinguishable from a
+ * plain property; spreading a track mints both, and the copy is then an ordinary object.
+ */
 export function buildTrack(rec: TrackRecord): Track {
-  return {
-    ...rec,
-    path: cleanFolderPath(rec.path), // records saved before the folder view have no path
-    url: URL.createObjectURL(rec.file),
-    cover: rec.coverBlob ? URL.createObjectURL(rec.coverBlob) : null,
-  }
+  const made: MintedUrls = {}
+  const track = { ...rec, path: cleanFolderPath(rec.path) } as Track // records saved before the folder view have no path
+  Object.defineProperties(track, {
+    url: {
+      enumerable: true,
+      configurable: true,
+      get: () => (made.url ??= URL.createObjectURL(rec.file)),
+    },
+    cover: {
+      enumerable: true,
+      configurable: true,
+      get: () => (rec.coverBlob ? (made.cover ??= URL.createObjectURL(rec.coverBlob)) : null),
+    },
+  })
+  minted.set(track, made)
+  return track
 }
 
 export async function lrcFromFile(file: Blob): Promise<Lyrics | null> {
@@ -127,7 +153,9 @@ export async function filesToTracks(
   return { tracks, orphanLrc }
 }
 
+/** Free a track's object URLs; for a lazily built track only the ones it actually created. */
 export function revokeTrack(t: Pick<Track, 'url' | 'cover'>): void {
-  URL.revokeObjectURL(t.url)
-  if (t.cover) URL.revokeObjectURL(t.cover)
+  const made = minted.get(t)
+  const urls = made ? [made.url, made.cover] : [t.url, t.cover]
+  for (const u of urls) if (u) URL.revokeObjectURL(u)
 }

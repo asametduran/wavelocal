@@ -248,6 +248,44 @@ describe('buildTrack / revokeTrack', () => {
     expect(buildTrack({ ...rec, coverBlob: new Blob(['i']) }).cover).toMatch(/^blob:mock-/)
   })
 
+  it('mints object URLs only when they are first read, and keeps them stable', () => {
+    const t = buildTrack({ ...rec, coverBlob: new Blob(['i']) })
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+    const url = t.url
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
+    expect(t.url).toBe(url)
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
+    expect(t.cover).not.toBe(url)
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(2)
+  })
+
+  it('building thousands of tracks registers no object URLs until they are shown', () => {
+    for (let i = 0; i < 5000; i++) buildTrack({ ...rec, id: `t${i}`, coverBlob: new Blob(['i']) })
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('revoking a never-read track revokes nothing', () => {
+    revokeTrack(buildTrack({ ...rec, coverBlob: new Blob(['i']) }))
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('revokes exactly the URLs a lazy track created', () => {
+    const t = buildTrack({ ...rec, coverBlob: new Blob(['i']) })
+    const url = t.url
+    revokeTrack(t)
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(url)
+  })
+
+  it('a spread copy is a plain object that revokes the URLs it captured', () => {
+    const copy = { ...buildTrack({ ...rec, coverBlob: new Blob(['i']) }) }
+    expect(copy.url).toMatch(/^blob:mock-/)
+    revokeTrack(copy)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(copy.url)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(copy.cover)
+  })
+
   it('revokes both URLs', () => {
     revokeTrack({ url: 'blob:a', cover: 'blob:b' })
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:a')

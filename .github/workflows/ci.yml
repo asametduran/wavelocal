@@ -85,6 +85,9 @@ jobs:
       - name: Build web app
         run: npm run build
 
+      - name: Check bundle size budget
+        run: npm run size
+
       - name: Run Playwright tests
         run: npx playwright test
         env:

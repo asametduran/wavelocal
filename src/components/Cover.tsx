@@ -11,7 +11,7 @@ interface CoverProps {
 
 export default function Cover({ track, className = '', iconSize = 24 }: CoverProps) {
   if (track?.cover) {
-    return <img src={track.cover} alt="" draggable={false} className={`object-cover ${className}`} />
+    return <img src={track.cover} alt="" draggable={false} decoding="async" className={`object-cover ${className}`} />
   }
   return (
     <div

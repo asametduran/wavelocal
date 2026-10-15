@@ -44,7 +44,7 @@ one headless Claude Code session after another, and only pauses when the Claude 
 ## Backlog (smaller items, only when the packs are blocked)
 - [x] Tag editor: edit and save ID3 title/artist/album/cover
 - [x] Folder tree browser (use `webkitRelativePath`)
-- [ ] Performance audit: Lighthouse pass, bundle splitting, lazy-load modals, memory use with huge libraries
+- [x] Performance audit: Lighthouse pass, bundle splitting, lazy-load modals, memory use with huge libraries
 - [ ] Accessibility audit: screen-reader labels, focus order, reduced-motion support
 - [ ] WebRTC local LAN music sharing / synced listening (serverless pairing via QR or copy-paste signalling)
 - [ ] Smart playlists (recently added, most played, never played) with play counts stored locally
@@ -100,3 +100,4 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - D4: added Windows packaging: electron-builder config (per-user NSIS installer, web build bundled under resources/web, tests and source maps kept out of the asar), `desktop:dist`/`desktop:pack`, an installer verifier, a packaged-app smoke test, and a `windows-latest` workflow that builds, verifies, smoke-tests and uploads the installer artifact.
 - Backlog: added a tag editor (pencil on every library row): edit title/artist/album/cover in an accessible dialog; MP3s get the tags rewritten into the stored copy by a new ID3v2.2/2.3/2.4 rewriter that keeps ReplayGain, lyrics and all other frames and never touches the audio bytes; other formats update the library only; cover validated by magic bytes; "Download copy" hands back the tagged file; 28 unit tests and 9 e2e tests.
 - Backlog: added a folder tree browser: the library remembers each file's folder (`webkitRelativePath` from the folder picker, or a recursive `FileSystemEntry` walk for dropped folders), and a Folders toggle in the library header shows it as an accessible virtualized tree (roving-focus arrow-key navigation, search that opens matching folders, remembered open state, Play folder, Save folder as playlist, show playing track, expand/collapse all); old libraries keep working as loose files; 40 unit tests and 16 e2e tests.
+- Backlog: performance audit: sound tools, shortcuts, tag editor, folder tree and the tag reader are lazy chunks (with idle preload and a retryable failure notice), React/icons split into long-lived vendor chunks (initial JS 135 kB -> 106 kB gzipped), object URLs minted lazily so a 10,000-track library registers a handful instead of 20,000, `npm run size` budget check in CI, Lighthouse a11y/SEO fixes (main landmark, contrast, robots.txt; 100/100/100); 10 unit and 6 e2e tests incl. a seeded 10,000-track library.

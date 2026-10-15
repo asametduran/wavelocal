@@ -2,10 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, RefObject, UIEvent } from 'react'
 import { FolderOpen, FolderTree as FolderTreeIcon, GripVertical, List, ListPlus, Pencil, Plus, Search, Trash2, Tv, X } from 'lucide-react'
 import Cover from './Cover'
-import TagEditor from './TagEditor'
-import FolderTree from './FolderTree'
+import { Deferred, lazyRetry, preloadWhenIdle } from './lazy'
 import { formatTime } from '../lib/format'
 import type { PlayerApi } from '../types'
+
+// Code for the folder tree and the tag editor is only fetched when a folder view or an edit is first asked for.
+const loadFolderTree = () => import('./FolderTree')
+const loadTagEditor = () => import('./TagEditor')
+const FolderTree = lazyRetry(loadFolderTree)
+const TagEditor = lazyRetry(loadTagEditor)
 
 function Bars() {
   return (
@@ -50,6 +55,7 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [mode, setMode] = useState<LibraryMode>(loadMode)
+  useEffect(() => preloadWhenIdle([loadFolderTree, loadTagEditor]), [])
   const editing = editingId ? (p.tracks.find((t) => t.id === editingId) ?? null) : null
 
   const listRef = useRef<HTMLUListElement>(null)
@@ -184,7 +190,9 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
       </div>
 
       {mode === 'folders' ? (
-        <FolderTree p={p} query={query} onEdit={(id) => (setMenuFor(null), setEditingId(id))} />
+        <Deferred label="the folder view" onDismiss={() => (FolderTree.reset(), setMode('list'))}>
+          <FolderTree p={p} query={query} onEdit={(id) => (setMenuFor(null), setEditingId(id))} />
+        </Deferred>
       ) : (
       <ul ref={listRef} onScroll={(e: UIEvent<HTMLUListElement>) => {
           setScrollTop(e.currentTarget.scrollTop)
@@ -258,7 +266,7 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
         })}
         {end < rows.length && <li aria-hidden="true" style={{ height: (rows.length - end) * ROW_H }} />}
         {!rows.length && (
-          <li className="flex flex-col items-center gap-4 px-4 py-10 text-center text-sm text-zinc-500">
+          <li className="flex flex-col items-center gap-4 px-4 py-10 text-center text-sm text-zinc-400">
             {p.queue.length
               ? 'No tracks match your search.'
               : inPlaylist
@@ -274,7 +282,11 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
         )}
       </ul>
       )}
-      {editing && <TagEditor key={editing.id} p={p} track={editing} onClose={() => setEditingId(null)} />}
+      {editing && (
+        <Deferred label="the tag editor" onDismiss={() => (TagEditor.reset(), setEditingId(null))}>
+          <TagEditor key={editing.id} p={p} track={editing} onClose={() => setEditingId(null)} />
+        </Deferred>
+      )}
     </aside>
   )
 }

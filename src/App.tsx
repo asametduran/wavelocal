@@ -11,9 +11,14 @@ import Playlist from './components/Playlist'
 import NowPlaying from './components/NowPlaying'
 import NowPlayingSheet from './components/NowPlayingSheet'
 import QueueSheet from './components/QueueSheet'
-import ToolsModal from './components/ToolsModal'
-import ShortcutsModal from './components/ShortcutsModal'
+import { lazyPanel, preloadWhenIdle } from './components/lazy'
 import PlayerBar, { MiniBar } from './components/PlayerBar'
+
+// Rarely opened panels are separate chunks: the sound tools alone pull in the EQ, dynamics, spatial and reverb editors.
+const loadTools = () => import('./components/ToolsModal')
+const loadShortcuts = () => import('./components/ShortcutsModal')
+const ToolsModal = lazyPanel('the sound tools', loadTools)
+const ShortcutsModal = lazyPanel('the shortcut list', loadShortcuts)
 
 export default function App() {
   const p = usePlayer()
@@ -30,6 +35,8 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false)
 
   // Back button / remote Back / Escape: close the topmost sheet first.
+  useEffect(() => preloadWhenIdle([loadTools, loadShortcuts]), [])
+
   const onBack = useCallback(() => {
     if (helpOpen) {
       setHelpOpen(false)
@@ -130,7 +137,7 @@ export default function App() {
       <input ref={fileInput} type="file" accept="audio/*,.mp3,.m4a,.flac,.ogg,.wav,.lrc" multiple hidden onChange={onInput} />
       <input ref={folderInput} type="file" webkitdirectory="" directory="" multiple hidden onChange={onInput} />
 
-      <div className="flex min-h-0 flex-1">
+      <main className="flex min-h-0 flex-1">
         <Playlist
           p={p}
           searchRef={searchRef}
@@ -141,7 +148,7 @@ export default function App() {
           className="flex-1 md:flex-none"
         />
         <NowPlaying p={p} onPickFiles={pickFiles} onPickFolder={pickFolder} />
-      </div>
+      </main>
 
       <MiniBar p={p} onOpen={() => setNowOpen(true)} />
       <PlayerBar p={p} onOpenTools={() => setToolsOpen(true)} />
