@@ -29,7 +29,7 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - [x] B4. CI workflow `.github/workflows/ci.yml` running typecheck + unit + e2e on every push/PR (separate from the APK workflow); cache Playwright browsers; upload failure traces
 
 ### Pack C - Advanced DSP audio engine
-- [ ] C1. 3D spatial audio: `PannerNode` (HRTF) with a position pad UI, auto-rotate "8D" mode, wet/dry and distance controls
+- [x] C1. 3D spatial audio: `PannerNode` (HRTF) with a position pad UI, auto-rotate "8D" mode, wet/dry and distance controls
 - [ ] C2. Reverb room simulation: `ConvolverNode` with procedurally generated impulse responses (small room, hall, cathedral, plate), pre-delay, decay, wet/dry mix
 - [ ] C3. Parametric EQ: editable band frequency, Q and gain with draggable response curve, band types (peak, shelf, notch), keep the 10-band graphic EQ as a preset view; save/load custom presets
 - [ ] C4. Dynamics and stereo: compressor/limiter, stereo widener, mono downmix, bass/treble shelves, per-track EQ memory
@@ -89,3 +89,4 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - B2: added synthetic audio pipeline in `src/test-utils` (WAV 16/24/float codec, sine/sweep/noise/clipped/loudness generators, ID3v2 builder tested against the real tag reader, named fixture catalog); 225 tests total.
 - B3: added Playwright headless e2e (`npm run test:e2e`, 66 tests in real Chromium) covering import, playback, seek, queue reorder, search, playlists, persistence, lyrics sync, EQ/speed/normalization (asserting the live Web Audio graph), sleep timer and gapless/crossfade.
 - B4: added `.github/workflows/ci.yml` (typecheck + unit + Playwright e2e on every push/PR, Playwright browser cache keyed by version, traces/report uploaded on failure); separate from the APK workflow.
+- C1: added 3D spatial audio (HRTF PannerNode after the EQ, position pad with pointer + keyboard control, distance, equal-power wet/dry, "8D" auto-rotate via scheduled orbit curves); 56 geometry unit tests and 16 e2e tests that read the live panner position.

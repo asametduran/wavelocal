@@ -34,12 +34,13 @@ export const tone = (name: string, seconds = 0.1, frequency = 440): Upload => ({
 
 /**
  * Everything the page created that tests may want to inspect: playing media elements, EQ filters and gain nodes.
- * Gain order follows AudioEngine.init(): [master, deck0.norm, deck0.crossfade, deck1.norm, deck1.crossfade].
+ * Gain order follows AudioEngine.init(): [master, deck0.norm, deck0.crossfade, deck1.norm, deck1.crossfade, spatial.dry, spatial.wet, spatial.out].
  */
 export interface AudioProbe {
   media: Set<HTMLMediaElement>
   filters: BiquadFilterNode[]
   gains: GainNode[]
+  panners: PannerNode[]
 }
 
 declare global {
@@ -48,12 +49,12 @@ declare global {
   }
 }
 
-export const GAIN = { master: 0, deck0Norm: 1, deck0Fade: 2, deck1Norm: 3, deck1Fade: 4 } as const
+export const GAIN = { master: 0, deck0Norm: 1, deck0Fade: 2, deck1Norm: 3, deck1Fade: 4, spatialDry: 5, spatialWet: 6, spatialOut: 7 } as const
 
 /** Record media elements and audio nodes created by the app (must run before the page loads). */
 export async function installAudioProbe(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const probe: AudioProbe = { media: new Set(), filters: [], gains: [] }
+    const probe: AudioProbe = { media: new Set(), filters: [], gains: [], panners: [] }
     window.__probe = probe
     const play = HTMLMediaElement.prototype.play
     HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
@@ -64,6 +65,12 @@ export async function installAudioProbe(page: Page): Promise<void> {
     AudioContext.prototype.createBiquadFilter = function (this: AudioContext) {
       const node = biquad.call(this)
       probe.filters.push(node)
+      return node
+    }
+    const panner = AudioContext.prototype.createPanner
+    AudioContext.prototype.createPanner = function (this: AudioContext) {
+      const node = panner.call(this)
+      probe.panners.push(node)
       return node
     }
     const gain = AudioContext.prototype.createGain
@@ -203,6 +210,14 @@ export class PlayerPage {
   /** Current value of a gain node by its index in creation order (see GAIN). */
   async gainValue(index: number): Promise<number> {
     return this.page.evaluate((i) => window.__probe.gains[i]?.gain.value ?? Number.NaN, index)
+  }
+
+  /** The spatial panner's model and current automated position, with the audio clock reading it was taken at. */
+  async panner(): Promise<{ model: string; x: number; y: number; z: number; time: number } | null> {
+    return this.page.evaluate(() => {
+      const p = window.__probe.panners[0]
+      return p ? { model: p.panningModel, x: p.positionX.value, y: p.positionY.value, z: p.positionZ.value, time: p.context.currentTime } : null
+    })
   }
 
   /** How many media elements are currently playing (2 during a crossfade overlap). */

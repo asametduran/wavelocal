@@ -22,7 +22,8 @@ A modern dark-mode music player that runs entirely in your browser. Your files a
 
 ## Audiophile toolkit
 
-- **DSP engine** — Web Audio graph: two playback decks → 10-band equalizer (31 Hz–16 kHz, ±12 dB) → analyser → master fade. Presets: Flat, Bass Boost, Vocal, Rock, Acoustic, Electronic, Treble Boost. Press `E` for the Sound & tools panel.
+- **DSP engine** — Web Audio graph: two playback decks → 10-band equalizer (31 Hz–16 kHz, ±12 dB) → 3D spatial stage → analyser → master fade. Presets: Flat, Bass Boost, Vocal, Rock, Acoustic, Electronic, Treble Boost. Press `E` for the Sound & tools panel.
+- **3D spatial audio** — an HRTF `PannerNode` with a draggable (and keyboard-operable) position pad, distance and equal-power wet/dry controls, and an "8D" auto-rotate mode that circles the sound around your head at an adjustable speed. Best on headphones; off by default and costs nothing while off.
 - **Visualizer** — live canvas spectrum bars or waveform on the Now Playing screen (click to switch).
 - **Synced lyrics** — drop `Song.lrc` next to `Song.mp3` (matched by file name) or load one from the Lyrics tab; embedded ID3 lyrics are used too. Karaoke-style auto-scroll, tap a line to seek.
 - **Offline library** — imported tracks, playlists, queue order, lyrics, settings and your last position are stored in IndexedDB, so a refresh or app restart keeps your music. Nothing leaves the device.
@@ -94,7 +95,8 @@ src/
 │   ├── useTvMode.ts      10-foot UI + D-pad focus navigation
 │   └── useSwipe.ts       touch gestures
 ├── lib/
-│   ├── engine.ts         Web Audio graph: decks, 10-band EQ, analyser, fades
+│   ├── engine.ts         Web Audio graph: decks, 10-band EQ, spatial stage, analyser, fades
+│   ├── spatial.ts        pure 3D audio geometry (pad → position, orbit curves, wet/dry law)
 │   ├── lrc.ts            LRC parser + active-line lookup
 │   ├── db.ts             IndexedDB wrapper (tracks + meta)
 │   ├── metadata.ts       File → track (ID3 tags, cover art, lyrics pairing)

@@ -53,6 +53,24 @@ export interface ResumePoint {
   time: number
 }
 
+/**
+ * 3D spatial audio. The pad is a top-down view with the listener at the centre facing up:
+ * `x` is left (-1) to right (+1) and `y` is front (-1) to behind (+1), clamped to the unit disc.
+ */
+export interface SpatialSettings {
+  enabled: boolean
+  x: number
+  y: number
+  /** 0..1, mapped to 1..10 metres from the listener. */
+  distance: number
+  /** 0 = dry (original stereo) .. 1 = fully spatialized, equal-power crossfade. */
+  mix: number
+  /** "8D" mode: the source circles the listener continuously. */
+  rotate: boolean
+  /** Seconds per full orbit while rotating. */
+  orbitSeconds: number
+}
+
 /** User preferences persisted in localStorage under `wl-settings`. */
 export interface Settings {
   volume: number
@@ -65,6 +83,7 @@ export interface Settings {
   speed: number
   preservePitch: boolean
   normalize: boolean
+  spatial: SpatialSettings
 }
 
 /** Snapshot of live playback state exposed by the player. */
@@ -120,6 +139,9 @@ export interface PlayerApi {
   setEqOn: Dispatch<SetStateAction<boolean>>
   setEqBand: (index: number, gainDb: number) => void
   applyPreset: (name: string) => void
+  spatial: SpatialSettings
+  /** Merge a change into the spatial settings (values are clamped/sanitized). */
+  setSpatial: (patch: Partial<SpatialSettings>) => void
   /** Seconds left on the sleep timer, or null when it is off. */
   sleepLeft: number | null
   /** Start the sleep timer for `minutes`; 0 or null cancels it. */
