@@ -23,7 +23,7 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - [x] A5. Turn on full strictness (`strict`, `noUncheckedIndexedAccess`, `noImplicitReturns`), get `npm run typecheck` to zero errors, make `npm run build` run the typecheck first, document in README
 
 ### Pack B - Automated headless testing with synthetic audio
-- [ ] B1. Vitest + jsdom setup (`npm test`); unit tests for `lrc`, `format`, `loudness` (gainFromSamples), metadata pairing and ReplayGain parsing, queue/next/prev/shuffle logic extracted into pure functions
+- [x] B1. Vitest + jsdom setup (`npm test`); unit tests for `lrc`, `format`, `loudness` (gainFromSamples), metadata pairing and ReplayGain parsing, queue/next/prev/shuffle logic extracted into pure functions
 - [ ] B2. Synthetic audio pipeline: a test utility that generates WAV buffers/files (sine, sweep, silence, clipping, different loudness) used by unit and e2e tests
 - [ ] B3. Playwright headless e2e (`npm run test:e2e`): import synthetic files, play/pause/seek, queue reorder, search, playlists, persistence across reload, lyrics sync, EQ preset, sleep timer, crossfade track switch
 - [ ] B4. CI workflow `.github/workflows/ci.yml` running typecheck + unit + e2e on every push/PR (separate from the APK workflow); cache Playwright browsers; upload failure traces
@@ -85,3 +85,4 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - A3: migrated all hooks to TypeScript and typed the `usePlayer` return value as `PlayerApi` in `src/types.ts`.
 - A4: migrated all components and entry points to `.tsx` with typed props; added a React typings augmentation for folder inputs.
 - A5: enabled full strictness (noUncheckedIndexedAccess, noImplicitReturns), build now typechecks first, README documents it; fixed Tailwind content globs to include .ts/.tsx (A4 had purged styles).
+- B1: added Vitest + jsdom (`npm test`, 140 unit tests) covering lrc, format, loudness, metadata pairing/ReplayGain, db records and a new pure `lib/queue` module (next/prev/shuffle/reorder) extracted from usePlayer.

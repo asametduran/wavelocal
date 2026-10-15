@@ -3,6 +3,7 @@ import { AudioEngine, EQ_PRESETS } from '../lib/engine'
 import * as db from '../lib/db'
 import { estimateGainDb } from '../lib/loudness'
 import { buildTrack, filesToTracks, lrcFromFile, norm, revokeTrack } from '../lib/metadata'
+import { moveItem, nextRepeat, pickTrack, resolveQueue } from '../lib/queue'
 import type { EqGains, Lyrics, PlayerApi, Playlist, RepeatMode, Settings, Track, TransitionMode } from '../types'
 
 const clamp = (v: number, a: number, b: number): number => Math.min(b, Math.max(a, v))
@@ -93,16 +94,7 @@ export function usePlayer(): PlayerApi {
     hydrated: false,
   })
 
-  const queue = useMemo(() => {
-    if (viewId === 'all') return tracks
-    const pl = playlists.find((p) => p.id === viewId)
-    if (!pl) return tracks
-    const byId = new Map(tracks.map((t) => [t.id, t]))
-    return pl.trackIds.flatMap((id) => {
-      const t = byId.get(id)
-      return t ? [t] : []
-    })
-  }, [tracks, playlists, viewId])
+  const queue = useMemo(() => resolveQueue(tracks, playlists, viewId), [tracks, playlists, viewId])
 
   state.current = { ...state.current, tracks, queue, playlists, viewId, currentId: state.current.currentId ?? currentId, repeat, shuffle, transition, normalize, hydrated }
   const current = useMemo(() => tracks.find((t) => t.id === currentId) || null, [tracks, currentId])
@@ -176,23 +168,10 @@ export function usePlayer(): PlayerApi {
   )
 
   const pickNext = useCallback((dir: 1 | -1, auto: boolean): Track | null => {
-    const { queue: list, currentId: id, repeat: rep, shuffle: shuf } = state.current
-    if (!list.length) return null
-    const idx = list.findIndex((t) => t.id === id)
-    if (dir < 0) {
-      if (history.current.length && shuf) {
-        const prevId = history.current.pop()
-        return list.find((t) => t.id === prevId) || list[0] || null
-      }
-      return list[(idx - 1 + list.length) % list.length] ?? null
-    }
-    if (shuf && list.length > 1) {
-      let n = list[Math.floor(Math.random() * list.length)]
-      while (!n || n.id === id) n = list[Math.floor(Math.random() * list.length)]
-      return n
-    }
-    if (idx === list.length - 1) return auto && rep !== 'all' ? null : (list[0] ?? null)
-    return list[idx + 1] ?? null
+    const { queue: list, currentId, repeat: rep, shuffle: shuf } = state.current
+    const picked = pickTrack({ queue: list, currentId, repeat: rep, shuffle: shuf, history: history.current, dir, auto })
+    history.current = [...picked.history]
+    return picked.track
   }, [])
 
   /** Start the next track on the idle deck (overlapping for crossfade, immediate for gapless). */
@@ -316,7 +295,7 @@ export function usePlayer(): PlayerApi {
     setMuted(!muted)
   }, [muted, volume])
 
-  const cycleRepeat = useCallback(() => setRepeat((r) => (r === 'off' ? 'all' : r === 'all' ? 'one' : 'off')), [])
+  const cycleRepeat = useCallback(() => setRepeat(nextRepeat), [])
   const toggleShuffle = useCallback(() => setShuffle((s) => !s), [])
 
   // ---- lyrics ----
@@ -425,17 +404,9 @@ export function usePlayer(): PlayerApi {
   }, [cancelTransition, engine])
 
   const reorder = useCallback((from: number, to: number) => {
-    const mv = <T,>(arr: T[]): T[] => {
-      if (from === to || from < 0 || to < 0 || from >= arr.length || to >= arr.length) return arr
-      const c = arr.slice()
-      const [item] = c.splice(from, 1)
-      if (item === undefined) return arr
-      c.splice(to, 0, item)
-      return c
-    }
     const vid = state.current.viewId
-    if (vid === 'all') setTracks(mv)
-    else setPlaylists((l) => l.map((p) => (p.id === vid ? { ...p, trackIds: mv(p.trackIds) } : p)))
+    if (vid === 'all') setTracks((l) => moveItem(l, from, to))
+    else setPlaylists((l) => l.map((p) => (p.id === vid ? { ...p, trackIds: moveItem(p.trackIds, from, to) } : p)))
   }, [])
 
   // ---- playlists ----
