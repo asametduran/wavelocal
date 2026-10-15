@@ -11,7 +11,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run build && playwright test",
-    "test:e2e:ui": "npm run build && playwright test --ui"
+    "test:e2e:ui": "npm run build && playwright test --ui",
+    "desktop:install": "npm --prefix desktop install",
+    "desktop:dev": "node desktop/scripts/dev.mjs",
+    "desktop:build": "npm run build && npm --prefix desktop run build",
+    "desktop:start": "npm run build && npm --prefix desktop run start",
+    "desktop:test": "npm run desktop:build && playwright test -c desktop",
+    "typecheck:desktop": "npm --prefix desktop run typecheck"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",

@@ -9,7 +9,8 @@ export default defineConfig({
   worker: { format: 'es' },
   test: {
     environment: 'jsdom',
-    include: ['src/**/*.test.{ts,tsx}'],
+    // the desktop shell's pure helpers (no Electron imports) are tested here too
+    include: ['src/**/*.test.{ts,tsx}', 'desktop/src/**/*.test.ts'],
     restoreMocks: true,
   },
 })

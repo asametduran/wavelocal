@@ -87,6 +87,19 @@ First-time e2e setup: `npx playwright install chromium`. No audio files are comm
 
 CI (`.github/workflows/ci.yml`) runs the typecheck, unit tests and e2e suite on every push and pull request, separately from the APK build. Playwright browsers are cached by version, and a failed e2e run uploads its traces, screenshots and HTML report as a build artifact.
 
+### Desktop app (Electron)
+
+`desktop/` is a separate npm project (the web app never imports from it). The shell serves the built web app from a private `app://wavelocal/` origin (so module workers and IndexedDB persistence work), runs sandboxed with context isolation, attaches a strict Content-Security-Policy, cancels every request that is not local, and denies navigation, new windows and permission prompts. Your audio never leaves the machine.
+
+```bash
+npm run desktop:install   # once: installs Electron and TypeScript in desktop/
+npm run desktop:dev       # Vite dev server + Electron
+npm run build && npm run desktop:start   # run the built app
+npm run desktop:test      # Electron smoke tests (needs a fresh `npm run build`)
+```
+
+The page can detect the shell through `getDesktopBridge()` (`src/desktop-bridge.ts`); it is `null` in browsers and on Android.
+
 ## Architecture
 
 ```

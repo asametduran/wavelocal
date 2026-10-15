@@ -36,6 +36,11 @@ jobs:
       - name: Typecheck (app and e2e)
         run: npm run typecheck
 
+      - name: Typecheck (desktop shell)
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: npm --prefix desktop ci && npm run typecheck:desktop
+
       - name: Unit tests
         run: npm test
 

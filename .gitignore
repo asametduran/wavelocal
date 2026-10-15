@@ -13,3 +13,5 @@ loop.heartbeat
 test-results
 playwright-report
 blob-report
+
+desktop/out

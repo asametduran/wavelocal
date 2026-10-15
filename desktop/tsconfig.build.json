@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "out",
+    "rootDir": "..",
+    "sourceMap": true
+  },
+  "include": ["src/**/*.ts", "../src/desktop-bridge.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}

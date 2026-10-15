@@ -1,0 +1,21 @@
+{
+  "name": "wavelocal-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Wavelocal desktop shell (Electron). Loads the built web app from ../dist; nothing here is imported by the web app.",
+  "main": "out/desktop/src/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "start": "npm run build && electron .",
+    "dev": "node scripts/dev.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^39.0.0",
+    "typescript": "^5.9.0"
+  },
+  "allowScripts": {
+    "electron@39.8.10": true
+  }
+}
