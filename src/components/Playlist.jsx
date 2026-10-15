@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { FolderOpen, GripVertical, ListPlus, Plus, Search, Trash2, Tv, X } from 'lucide-react'
 import Cover from './Cover'
 import { formatTime } from '../lib/format'
@@ -13,6 +13,9 @@ function Bars() {
   )
 }
 
+const ROW_H = 52
+const OVERSCAN = 8
+
 const headBtn = 'grid h-8 w-8 place-items-center rounded-full text-zinc-400 hover:bg-white/10 hover:text-white'
 
 export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, onToggleTv, className = '' }) {
@@ -20,6 +23,20 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
   const [dragFrom, setDragFrom] = useState(null)
   const [dragOver, setDragOver] = useState(null)
   const [menuFor, setMenuFor] = useState(null)
+
+  const listRef = useRef(null)
+  const [scrollTop, setScrollTop] = useState(0)
+  const [viewH, setViewH] = useState(600)
+
+  useEffect(() => {
+    const el = listRef.current
+    if (!el) return
+    const measure = () => setViewH(el.clientHeight)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   const inPlaylist = p.viewId !== 'all'
   const playlist = p.playlists.find((x) => x.id === p.viewId)
@@ -31,6 +48,10 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
         .filter(({ t }) => !q || `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(q)),
     [p.queue, q],
   )
+
+  const start = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN)
+  const end = Math.min(rows.length, Math.ceil((scrollTop + viewH) / ROW_H) + OVERSCAN)
+  const visible = rows.slice(start, end)
 
   const onView = (e) => {
     const v = e.target.value
@@ -116,13 +137,15 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
         </label>
       </div>
 
-      <ul className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        {rows.map(({ t, index }) => {
+      <ul ref={listRef} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        {start > 0 && <li aria-hidden="true" style={{ height: start * ROW_H }} />}
+        {visible.map(({ t, index }) => {
           const active = t.id === p.currentId
           const others = p.playlists.filter((pl) => pl.id !== p.viewId)
           return (
             <li
               key={t.id}
+              style={{ height: ROW_H }}
               draggable={!q}
               onDragStart={(e) => {
                 setDragFrom(index)
@@ -140,7 +163,7 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
                 p.reorder(dragFrom, index)
               }}
               onDragEnd={() => (setDragFrom(null), setDragOver(null))}
-              className={`group relative flex items-center gap-2 rounded-lg px-2 py-1.5 transition ${active ? 'bg-white/10' : 'hover:bg-white/5'} ${dragOver === index && dragFrom !== index ? 'ring-1 ring-accent' : ''} ${dragFrom === index ? 'opacity-40' : ''}`}
+              className={`group relative flex items-center gap-2 rounded-lg px-2 transition ${active ? 'bg-white/10' : 'hover:bg-white/5'} ${dragOver === index && dragFrom !== index ? 'ring-1 ring-accent' : ''} ${dragFrom === index ? 'opacity-40' : ''}`}
             >
               {!q && <GripVertical size={14} className="shrink-0 cursor-grab text-zinc-700 group-hover:text-zinc-500" />}
               <button onClick={() => p.play(t.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left" aria-current={active}>
@@ -178,6 +201,7 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
             </li>
           )
         })}
+        {end < rows.length && <li aria-hidden="true" style={{ height: (rows.length - end) * ROW_H }} />}
         {!rows.length && (
           <li className="flex flex-col items-center gap-4 px-4 py-10 text-center text-sm text-zinc-500">
             {p.queue.length

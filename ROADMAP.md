@@ -23,7 +23,7 @@ and pushes to `main` (which also triggers the Android APK build).
 - [x] Sleep timer with fade-out, gapless and crossfade
 
 ## Next up (in rough priority order)
-- [ ] Virtualized track lists so libraries of 10,000+ songs scroll smoothly (windowing, no extra deps if practical)
+- [x] Virtualized track lists so libraries of 10,000+ songs scroll smoothly (windowing, no extra deps if practical)
 - [ ] ReplayGain / loudness normalization (read ReplayGain tags, fall back to computed RMS/LUFS estimate, toggle in Sound panel)
 - [x] Pitch and speed control (playbackRate with preservesPitch toggle, 0.5x-2x, reset button)
 - [ ] Custom themes and accent colors (CSS variables, presets + custom picker, persisted)
@@ -47,3 +47,4 @@ and pushes to `main` (which also triggers the Android APK build).
 ## Changelog (one line per autonomous run)
 - Initial roadmap created.
 - Added speed (0.5x-2x) and keep-pitch toggle to Sound panel, persisted locally.
+- Virtualized the library track list (fixed-height windowing with overscan, no new deps).
