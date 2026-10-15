@@ -27,6 +27,10 @@ $prompt = 'Read ROADMAP.md. Pick the next uncompleted task or performance/UI imp
 $claude = (Get-Command claude -ErrorAction SilentlyContinue).Source
 if (-not $claude) { $claude = Join-Path $env:USERPROFILE '.local\bin\claude.exe' }
 
+# Single-instance guard: a second copy (e.g. Startup entry + manual launch) exits immediately.
+$script:instanceLock = New-Object System.Threading.Mutex($false, 'Local\WavelocalEvolutionLoop')
+if (-not $script:instanceLock.WaitOne(0)) { Write-Log "another loop instance is already running - PID $PID exiting"; exit 0 }
+
 Write-Log "loop started (PID $PID), interval ${IntervalSeconds}s, claude=$claude"
 
 while ($true) {
@@ -40,10 +44,11 @@ while ($true) {
       -ArgumentList @('-p', "`"$prompt`"", '--dangerously-skip-permissions') `
       -WorkingDirectory $PSScriptRoot -NoNewWindow -PassThru `
       -RedirectStandardOutput $lastRun -RedirectStandardError $errFile
+    $null = $p.Handle   # cache the process handle, otherwise ExitCode is $null in Windows PowerShell 5.1
     if (-not $p.WaitForExit($RunTimeoutSeconds * 1000)) {
       $p.Kill()
       $status = "TIMEOUT after ${RunTimeoutSeconds}s (killed)"
-    } elseif ($p.ExitCode -ne 0) {
+    } elseif ($p.ExitCode -and $p.ExitCode -ne 0) {
       $status = "FAILED exit=$($p.ExitCode)"
     }
   } catch {
@@ -51,7 +56,7 @@ while ($true) {
   }
 
   $after = (git rev-parse --short HEAD 2>$null)
-  $summary = if (Test-Path $lastRun) { (Get-Content $lastRun -Tail 6 -ErrorAction SilentlyContinue) -join ' | ' } else { '' }
+  $summary = if (Test-Path $lastRun) { (Get-Content $lastRun -Tail 6 -Encoding UTF8 -ErrorAction SilentlyContinue) -join ' | ' } else { '' }
   if ($before -ne $after) { Write-Log "run $status - new commits $before -> $after" } else { Write-Log "run $status - no new commit (HEAD $after)" }
   if ($summary) { Write-Log "  last output: $summary" }
 
