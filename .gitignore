@@ -8,3 +8,5 @@ evolution.log
 evolution-last-run.txt
 evolution-last-run.err
 STOP
+loop.pid
+loop.heartbeat
