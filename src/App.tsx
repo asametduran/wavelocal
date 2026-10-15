@@ -6,6 +6,7 @@ import { useDesktopTray } from './hooks/useDesktopTray'
 import { useHotkeys } from './hooks/useHotkeys'
 import { useTvMode } from './hooks/useTvMode'
 import { useTheme } from './hooks/useTheme'
+import { filesFromDrop } from './lib/dropped'
 import Playlist from './components/Playlist'
 import NowPlaying from './components/NowPlaying'
 import NowPlayingSheet from './components/NowPlayingSheet'
@@ -98,7 +99,8 @@ export default function App() {
       e.preventDefault()
       depth = 0
       setDragging(false)
-      if (e.dataTransfer) p.addFiles(e.dataTransfer.files)
+      // read synchronously: the browser empties the DataTransfer once this handler returns (folders need walking)
+      void filesFromDrop(e.dataTransfer).then((files) => files.length && p.addFiles(files))
     }
     window.addEventListener('dragenter', enter)
     window.addEventListener('dragover', over)

@@ -42,6 +42,7 @@ export const toRecord = (t: TrackRecord): TrackRecord => ({
   id: t.id,
   key: t.key,
   file: t.file,
+  path: t.path || '',
   coverBlob: t.coverBlob || null,
   title: t.title,
   artist: t.artist,

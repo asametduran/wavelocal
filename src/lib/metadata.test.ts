@@ -195,11 +195,40 @@ describe('filesToTracks', () => {
   })
 })
 
+describe('folder paths', () => {
+  const inFolder = (name: string, path: string) => Object.defineProperty(audio(name), 'webkitRelativePath', { value: path })
+
+  it('records the folder a file was picked from', async () => {
+    const { tracks } = await filesToTracks([inFolder('a.mp3', 'Music/Rock/a.mp3'), inFolder('b.mp3', 'Music/b.mp3')])
+    expect(tracks.map((t) => [t.file.name, t.path])).toEqual([
+      ['a.mp3', 'Music/Rock'],
+      ['b.mp3', 'Music'],
+    ])
+  })
+
+  it('leaves individually picked files without a folder', async () => {
+    const { tracks } = await filesToTracks([audio('a.mp3')])
+    expect(tracks[0]?.path).toBe('')
+  })
+
+  it('does not let a hostile relative path escape the root', async () => {
+    const { tracks } = await filesToTracks([inFolder('a.mp3', '../../x/a.mp3')])
+    expect(tracks[0]?.path).toBe('x')
+  })
+
+  it('treats records saved before the folder view as loose files', () => {
+    const legacy = { id: 't1', key: 'k', file: audio('a.mp3'), coverBlob: null, title: 'A', artist: 'B', album: '', duration: 0, lyrics: null, gainDb: null }
+    // @ts-expect-error old IndexedDB rows have no `path`
+    expect(buildTrack(legacy).path).toBe('')
+  })
+})
+
 describe('buildTrack / revokeTrack', () => {
   const rec = {
     id: 't1',
     key: 'k',
     file: audio('a.mp3'),
+    path: '',
     coverBlob: null,
     title: 'A',
     artist: 'B',

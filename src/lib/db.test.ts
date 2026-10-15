@@ -8,6 +8,7 @@ const base: TrackRecord = {
   id: 't1',
   key: 'a.mp3|5|1',
   file,
+  path: 'Music/Rock',
   coverBlob: null,
   title: 'A',
   artist: 'B',
@@ -25,7 +26,7 @@ describe('toRecord', () => {
   it('drops in-memory object URLs and any other extra fields', () => {
     const track: Track & { selected: boolean } = { ...base, url: 'blob:abc', cover: 'blob:def', selected: true }
     const record = toRecord(track)
-    expect(Object.keys(record).sort()).toEqual(['album', 'artist', 'coverBlob', 'duration', 'file', 'gainDb', 'id', 'key', 'lyrics', 'title'])
+    expect(Object.keys(record).sort()).toEqual(['album', 'artist', 'coverBlob', 'duration', 'file', 'gainDb', 'id', 'key', 'lyrics', 'path', 'title'])
     expect(record).not.toHaveProperty('url')
     expect(record).not.toHaveProperty('cover')
   })

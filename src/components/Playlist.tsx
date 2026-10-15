@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, RefObject, UIEvent } from 'react'
-import { FolderOpen, GripVertical, ListPlus, Pencil, Plus, Search, Trash2, Tv, X } from 'lucide-react'
+import { FolderOpen, FolderTree as FolderTreeIcon, GripVertical, List, ListPlus, Pencil, Plus, Search, Trash2, Tv, X } from 'lucide-react'
 import Cover from './Cover'
 import TagEditor from './TagEditor'
+import FolderTree from './FolderTree'
 import { formatTime } from '../lib/format'
 import type { PlayerApi } from '../types'
 
@@ -18,6 +19,17 @@ function Bars() {
 
 const ROW_H = 52
 const OVERSCAN = 8
+
+type LibraryMode = 'list' | 'folders'
+const MODE_KEY = 'wl-library-view'
+
+function loadMode(): LibraryMode {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'folders' ? 'folders' : 'list'
+  } catch {
+    return 'list'
+  }
+}
 
 const headBtn = 'grid h-8 w-8 place-items-center rounded-full text-zinc-400 hover:bg-white/10 hover:text-white'
 
@@ -37,6 +49,7 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
   const [dragOver, setDragOver] = useState<number | null>(null)
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [mode, setMode] = useState<LibraryMode>(loadMode)
   const editing = editingId ? (p.tracks.find((t) => t.id === editingId) ?? null) : null
 
   const listRef = useRef<HTMLUListElement>(null)
@@ -51,7 +64,16 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [mode]) // the list is unmounted in folder view, so measure again when it comes back
+
+  const chooseMode = (next: LibraryMode) => {
+    setMode(next)
+    try {
+      localStorage.setItem(MODE_KEY, next)
+    } catch {
+      // storage blocked: the choice just lasts for this session
+    }
+  }
 
   const inPlaylist = p.viewId !== 'all'
   const playlist = p.playlists.find((x) => x.id === p.viewId)
@@ -121,6 +143,15 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
           <button onClick={onPickFolder} className={headBtn} aria-label="Add folder" title="Add folder">
             <FolderOpen size={17} />
           </button>
+          <button
+            onClick={() => chooseMode(mode === 'folders' ? 'list' : 'folders')}
+            aria-pressed={mode === 'folders'}
+            className={`${headBtn} ${mode === 'folders' ? '!text-accent' : ''}`}
+            aria-label="Folder view"
+            title={mode === 'folders' ? 'Switch to the track list' : 'Browse by folder'}
+          >
+            {mode === 'folders' ? <List size={16} /> : <FolderTreeIcon size={16} />}
+          </button>
           {onToggleTv && (
             <button onClick={onToggleTv} aria-pressed={!!tv} className={`hidden md:grid ${headBtn} ${tv ? '!text-accent' : ''}`} aria-label="TV mode (T)" title="TV mode (T)">
               <Tv size={16} />
@@ -152,6 +183,9 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
         </label>
       </div>
 
+      {mode === 'folders' ? (
+        <FolderTree p={p} query={query} onEdit={(id) => (setMenuFor(null), setEditingId(id))} />
+      ) : (
       <ul ref={listRef} onScroll={(e: UIEvent<HTMLUListElement>) => {
           setScrollTop(e.currentTarget.scrollTop)
           if (e.currentTarget.clientHeight > 0) setViewH(e.currentTarget.clientHeight)
@@ -239,6 +273,7 @@ export default function Playlist({ p, searchRef, onPickFiles, onPickFolder, tv, 
           </li>
         )}
       </ul>
+      )}
       {editing && <TagEditor key={editing.id} p={p} track={editing} onClose={() => setEditingId(null)} />}
     </aside>
   )

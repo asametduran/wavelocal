@@ -14,7 +14,8 @@ A modern dark-mode music player that runs entirely in your browser. Your files a
 - **Playback** — play/pause, next/previous, seek bar with live time and total duration
 - **Volume** — slider with mute toggle
 - **Modes** — shuffle, repeat all, repeat one
-- **Load music** — drag & drop anywhere on the window, pick files, or pick a whole folder
+- **Load music** — drag & drop anywhere on the window (whole folders included), pick files, or pick a whole folder
+- **Folder view** — the tree button in the library header browses by the folder structure you imported: keyboard-navigable (arrows, Home/End), searchable, remembers which folders are open, with *Play folder* and *Save as playlist* per folder
 - **ID3 metadata** — title, artist, album and embedded cover art via `jsmediatags`; sleek procedural gradient artwork when a file has none
 - **Queue** — click to play, drag to reorder, remove tracks, live search by title/artist/album
 - **OS integration** — Media Session API (media keys, lock-screen controls)

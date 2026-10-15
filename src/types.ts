@@ -20,6 +20,8 @@ export interface TrackRecord {
   /** Dedupe key: `name|size|lastModified`. */
   key: string
   file: File
+  /** Folder the file was imported from, relative to the picked/dropped folder root (`Music/Rock`); '' for loose files. */
+  path: string
   coverBlob: Blob | null
   title: string
   artist: string

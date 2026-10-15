@@ -253,6 +253,7 @@ describe('applyTagEdit', () => {
     id: 't1',
     key: `${name}|${bytes.length}|7`,
     file: new File([bytes], name, { type, lastModified: 7 }),
+    path: '',
     coverBlob: new Blob([JPEG], { type: 'image/jpeg' }),
     title: 'Old',
     artist: 'Old Band',

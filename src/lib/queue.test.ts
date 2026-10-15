@@ -7,6 +7,7 @@ const track = (id: string): Track => ({
   id,
   key: id,
   file: new File([], `${id}.mp3`),
+  path: '',
   coverBlob: null,
   title: id,
   artist: '',

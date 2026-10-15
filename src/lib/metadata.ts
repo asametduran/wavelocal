@@ -2,6 +2,7 @@ import jsmediatags from 'jsmediatags/dist/jsmediatags.min.js'
 import type { Picture, Tags, TxxxFrame, TxxxPayload } from 'jsmediatags/dist/jsmediatags.min.js'
 import type { Lyrics, Track, TrackRecord } from '../types'
 import { parseLrc } from './lrc'
+import { cleanFolderPath, folderOf } from './folders'
 
 const AUDIO_EXT = /\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|weba)$/i
 const LRC_EXT = /\.lrc$/i
@@ -19,6 +20,8 @@ const stripExt = (n: string): string => n.replace(/\.[^.]+$/, '')
 /** Normalised name used to pair "Song.mp3" with "song.lrc". */
 export const norm = (n: string): string => stripExt(n).trim().toLowerCase()
 export const fileKey = (f: File): string => `${f.name}|${f.size}|${f.lastModified}`
+/** The path a file was picked or dropped with (`Music/Rock/a.mp3`); '' for individually chosen files. */
+export const relativePathOf = (f: File): string => f.webkitRelativePath || ''
 const newId = (): string => `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
 
 function readTags(file: File): Promise<Tags> {
@@ -62,6 +65,7 @@ export function replayGainDb(tags: Tags | null | undefined): number | null {
 export function buildTrack(rec: TrackRecord): Track {
   return {
     ...rec,
+    path: cleanFolderPath(rec.path), // records saved before the folder view have no path
     url: URL.createObjectURL(rec.file),
     cover: rec.coverBlob ? URL.createObjectURL(rec.coverBlob) : null,
   }
@@ -86,6 +90,7 @@ async function fileToTrack(file: File, lrcMap: ReadonlyMap<string, Lyrics>): Pro
     id: newId(),
     key: fileKey(file),
     file,
+    path: folderOf(relativePathOf(file)),
     coverBlob: pictureBlob(tags.picture),
     title,
     artist,
