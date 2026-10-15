@@ -1,9 +1,10 @@
 import { expect } from '@playwright/test'
 import type { Dialog, Locator, Page } from '@playwright/test'
-import { buildFixture, lrcText } from '../src/test-utils/fixtures'
+import { buildFixture, buildFlac, lrcText } from '../src/test-utils/fixtures'
 import { sine } from '../src/test-utils/signals'
 import { encodeWav } from '../src/test-utils/wav'
 import type { FixtureName } from '../src/test-utils/fixtures'
+import type { FlacEncodeOptions } from '../src/test-utils/flac-encoder'
 
 export interface Upload {
   name: string
@@ -16,6 +17,13 @@ export const wav = (fixture: FixtureName, name = `${fixture}.wav`): Upload => ({
   name,
   mimeType: 'audio/wav',
   buffer: Buffer.from(buildFixture(fixture).bytes),
+})
+
+/** A synthetic fixture encoded as FLAC. */
+export const flac = (fixture: FixtureName, name = `${fixture}.flac`, options: Partial<FlacEncodeOptions> = {}): Upload => ({
+  name,
+  mimeType: 'audio/flac',
+  buffer: Buffer.from(buildFlac(fixture, options)),
 })
 
 /** A sidecar lyrics file built from [seconds, text] pairs. */
@@ -51,6 +59,11 @@ export interface AudioProbe {
   compressors: DynamicsCompressorNode[]
   /** Analysers on the left and right channel of the very last node before the speakers. */
   taps: { left: AnalyserNode; right: AnalyserNode } | null
+  /** Every object URL the page created, with the type and size of its Blob. */
+  blobs: Map<string, { type: string; size: number }>
+  revoked: string[]
+  /** How many Web Workers the page started. */
+  workers: number
 }
 
 declare global {
@@ -92,7 +105,7 @@ const TONE_FILTERS = 2
 /** Record media elements and audio nodes created by the app (must run before the page loads). */
 export async function installAudioProbe(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const probe: AudioProbe = { media: new Set(), filters: [], gains: [], panners: [], convolvers: [], delays: [], edges: new Map(), compressors: [], taps: null }
+    const probe: AudioProbe = { media: new Set(), filters: [], gains: [], panners: [], convolvers: [], delays: [], edges: new Map(), compressors: [], taps: null, blobs: new Map(), revoked: [], workers: 0 }
     window.__probe = probe
     const play = HTMLMediaElement.prototype.play
     HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
@@ -105,6 +118,25 @@ export async function installAudioProbe(page: Page): Promise<void> {
       probe.filters.push(node)
       return node
     }
+    const createObjectURL = URL.createObjectURL.bind(URL)
+    URL.createObjectURL = (source: Blob | MediaSource) => {
+      const url = createObjectURL(source)
+      if (source instanceof Blob) probe.blobs.set(url, { type: source.type, size: source.size })
+      return url
+    }
+    const revokeObjectURL = URL.revokeObjectURL.bind(URL)
+    URL.revokeObjectURL = (url: string) => {
+      probe.revoked.push(url)
+      revokeObjectURL(url)
+    }
+    const NativeWorker = window.Worker
+    window.Worker = class extends NativeWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options)
+        probe.workers++
+      }
+    }
+
     type ConnectFn = (this: AudioNode, destination: AudioNode | AudioParam, output?: number, input?: number) => unknown
     type DisconnectFn = (this: AudioNode, destination?: AudioNode | AudioParam | number) => void
     const connect = AudioNode.prototype.connect as unknown as ConnectFn
@@ -166,6 +198,52 @@ export async function installAudioProbe(page: Page): Promise<void> {
       probe.gains.push(node)
       return node
     }
+  })
+}
+
+/** Make the browser claim it cannot play WAV or FLAC at all, the way some old WebViews do. Install before `open()`. */
+export async function denyNativeLossless(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const canPlayType = HTMLMediaElement.prototype.canPlayType
+    HTMLMediaElement.prototype.canPlayType = function (this: HTMLMediaElement, type: string) {
+      return /^audio\/(x-)?(wav|wave|flac)/i.test(type) ? '' : canPlayType.call(this, type)
+    }
+  })
+}
+
+/**
+ * Make a media element that has been given an original FLAC file fail the way an unsupported format does:
+ * play() is rejected and an `error` event follows, while canPlayType still claims support. Install before `open()`.
+ */
+export async function failNativeFlacPlayback(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const types = new Map<string, string>()
+    const create = URL.createObjectURL.bind(URL)
+    URL.createObjectURL = (source: Blob | MediaSource) => {
+      const url = create(source)
+      if (source instanceof Blob) types.set(url, source.type)
+      return url
+    }
+    const play = HTMLMediaElement.prototype.play
+    HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+      if (types.get(this.getAttribute('src') ?? '') === 'audio/flac') {
+        setTimeout(() => this.dispatchEvent(new Event('error')), 0)
+        return Promise.reject(new DOMException('The element has no supported sources.', 'NotSupportedError'))
+      }
+      return play.call(this)
+    }
+  })
+}
+
+/** Make decodeAudioData reject FLAC data (as a browser without FLAC support would). Install before `open()`. */
+export async function rejectFlacDecoding(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const decode = BaseAudioContext.prototype.decodeAudioData as (this: BaseAudioContext, data: ArrayBuffer) => Promise<AudioBuffer>
+    BaseAudioContext.prototype.decodeAudioData = function (this: BaseAudioContext, data: ArrayBuffer) {
+      const head = String.fromCharCode(...new Uint8Array(data, 0, 4))
+      if (head === 'fLaC') return Promise.reject(new DOMException('Unable to decode audio data', 'EncodingError'))
+      return decode.call(this, data)
+    } as typeof BaseAudioContext.prototype.decodeAudioData
   })
 }
 
@@ -450,6 +528,31 @@ export class PlayerPage {
       }
       return { left: read(taps?.left), right: read(taps?.right) }
     }, frequencies)
+  }
+
+  /** The source the playing media element was given: its URL and the type and size of the Blob behind it. */
+  async playingSource(): Promise<{ src: string; type: string; size: number } | null> {
+    return this.page.evaluate(() => {
+      const playing = [...window.__probe.media].find((m) => !m.paused)
+      const src = playing?.getAttribute('src') ?? ''
+      const blob = window.__probe.blobs.get(src)
+      return playing && blob ? { src, type: blob.type, size: blob.size } : null
+    })
+  }
+
+  /** Web Workers the page has started. */
+  async workerCount(): Promise<number> {
+    return this.page.evaluate(() => window.__probe.workers)
+  }
+
+  /** Object URLs the page has revoked so far. */
+  async revokedUrls(): Promise<string[]> {
+    return this.page.evaluate(() => [...window.__probe.revoked])
+  }
+
+  /** The type and size of a Blob behind an object URL the page created. */
+  async blobInfo(url: string): Promise<{ type: string; size: number } | null> {
+    return this.page.evaluate((u) => window.__probe.blobs.get(u) ?? null, url)
   }
 
   /** How many media elements are currently playing (2 during a crossfade overlap). */

@@ -4,6 +4,8 @@ import * as db from '../lib/db'
 import { estimateGainDb } from '../lib/loudness'
 import { buildTrack, filesToTracks, lrcFromFile, norm, revokeTrack } from '../lib/metadata'
 import { moveItem, nextRepeat, pickTrack, resolveQueue } from '../lib/queue'
+import { PlayableResolver, createWorkerConvert } from '../lib/audio/playable'
+import { AudioDecodeError } from '../lib/audio/pcm'
 import { mergeSpatial, normalizeSpatial } from '../lib/spatial'
 import { addBand, bandsFromSettings, deletePreset, findPreset, graphicBands, normalizePresets, normalizeTrackEq, removeBand, savePreset, updateBand } from '../lib/eq'
 import { mergeReverb, normalizeReverb } from '../lib/reverb'
@@ -55,6 +57,8 @@ function loadSettings(): Partial<Settings> {
 /** Owns the audio engine (two decks, EQ, analyser) plus queue, playlists, persistence and playback state. */
 export function usePlayer(): PlayerApi {
   const [engine] = useState(() => new AudioEngine())
+  // decides what each <audio> element is given: the original file, or (for WAV/FLAC the browser cannot play) a decoded copy
+  const [resolver] = useState(() => new PlayableResolver({ convert: createWorkerConvert(), element: engine.decks[0].el }))
   const [saved] = useState(loadSettings)
 
   const [tracks, setTracks] = useState<Track[]>([]) // the whole library
@@ -86,6 +90,8 @@ export function usePlayer(): PlayerApi {
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
   const [hydrated, setHydrated] = useState(false)
+  /** Progress (0..1) of decoding the current track in JavaScript, or null when it is not being decoded. */
+  const [decoding, setDecoding] = useState<number | null>(null)
 
   const active = useRef<DeckIndex>(0) // index of the deck the user is hearing
   const history = useRef<string[]>([])
@@ -93,6 +99,16 @@ export function usePlayer(): PlayerApi {
   const sleep = useRef({ end: 0, fading: false })
   const pendingSeek = useRef<number | null>(null)
   const noticeTimer = useRef<Timer | undefined>(undefined)
+  /** Bumped on every load so a slow decode of an earlier track can tell that it has been superseded. */
+  const loadToken = useRef(0)
+  /** True while the current track has been chosen but its audio source is not ready yet (WAV/FLAC being checked or decoded). */
+  const awaitingSrc = useRef(false)
+  /** Whether the current load should start playing once its source is ready. */
+  const playIntent = useRef(false)
+  /** Consecutive tracks that failed to play, so a queue of unplayable files cannot loop forever. */
+  const failStreak = useRef(0)
+  /** Set after `next` exists; used where `load` has to skip an unplayable track. */
+  const skipUnplayable = useRef<() => void>(() => {})
   const state = useRef<Snapshot>({
     tracks: [],
     queue: [],
@@ -121,6 +137,10 @@ export function usePlayer(): PlayerApi {
 
   const startPlay = useCallback(
     (el: HTMLAudioElement) => {
+      // remember that playback is wanted: if the source is still being decoded, or the browser rejects it and we have to
+      // retry with a decoded copy, playback then starts by itself
+      playIntent.current = true
+      if (awaitingSrc.current) return Promise.resolve()
       engine.init()
       return el.play().catch(() => setPlaying(false))
     },
@@ -168,15 +188,47 @@ export function usePlayer(): PlayerApi {
       if (!track) return
       cancelTransition()
       const el = getEl()
-      el.src = track.url
-      applyNorm(active.current, track)
+      const token = ++loadToken.current
+      awaitingSrc.current = false
+      playIntent.current = autoplay
       state.current.currentId = track.id
       setCurrentId(track.id)
       setTime(0)
       setDuration(track.duration || 0)
-      if (autoplay) startPlay(el)
+      setDecoding(null)
+      resolver.retain([track.id])
+
+      const src = resolver.urlFor(track)
+      if (src) {
+        el.src = src
+        applyNorm(active.current, track)
+        if (autoplay) startPlay(el)
+        return
+      }
+
+      // WAV/FLAC: look inside the file first, and decode it ourselves if the browser cannot play it
+      awaitingSrc.current = true
+      el.removeAttribute('src')
+      el.load()
+      const deck = active.current
+      resolver
+        .resolve(track)
+        .then((url) => {
+          if (token !== loadToken.current) return
+          awaitingSrc.current = false
+          el.src = url
+          applyNorm(deck, track)
+          if (playIntent.current) startPlay(el) // true if this load autoplays, or the user pressed play while it was pending
+        })
+        .catch((error: unknown) => {
+          if (token !== loadToken.current) return
+          awaitingSrc.current = false
+          setDecoding(null)
+          notify(`Could not play "${track.title}": ${error instanceof Error ? error.message : 'unsupported audio'}`)
+          if (playIntent.current) skipUnplayable.current()
+        })
     },
-    [applyNorm, cancelTransition, getEl, startPlay],
+    [applyNorm, cancelTransition, getEl, notify, resolver, startPlay],
   )
 
   const pickNext = useCallback((dir: 1 | -1, auto: boolean): Track | null => {
@@ -201,7 +253,13 @@ export function usePlayer(): PlayerApi {
       const inEl = engine.decks[nxt].el
       const hasCtx = engine.init()
       const secs = mode === 'crossfade' && hasCtx ? clamp((outEl.duration || 0) / 2, 1, XFADE_SECS) : 0
-      if (inEl.getAttribute('src') !== nextT.url) inEl.src = nextT.url
+      const nextSrc = resolver.urlFor(nextT)
+      if (!nextSrc) {
+        // still being checked or decoded: warm it up, and let the normal "track ended" path pick it up if it is late
+        resolver.resolve(nextT).catch(() => {})
+        return
+      }
+      if (inEl.getAttribute('src') !== nextSrc) inEl.src = nextSrc
       applyNorm(nxt, nextT)
       inEl.currentTime = 0
       if (hasCtx) engine.setGain(nxt, secs ? 0 : 1)
@@ -228,7 +286,7 @@ export function usePlayer(): PlayerApi {
         (secs || 0.05) * 1000 + 150,
       )
     },
-    [engine, pickNext, applyNorm],
+    [engine, pickNext, applyNorm, resolver],
   )
 
   const next = useCallback(
@@ -246,6 +304,15 @@ export function usePlayer(): PlayerApi {
     },
     [cancelTransition, getEl, load, pickNext],
   )
+
+  skipUnplayable.current = () => {
+    if (++failStreak.current > Math.max(1, state.current.queue.length)) {
+      failStreak.current = 0
+      notify('None of the next tracks could be played')
+      return
+    }
+    next(true)
+  }
 
   const prev = useCallback(() => {
     const el = getEl()
@@ -391,10 +458,11 @@ export function usePlayer(): PlayerApi {
       setPlaylists((l) => l.map((p) => ({ ...p, trackIds: p.trackIds.filter((x) => x !== id) })))
       history.current = history.current.filter((x) => x !== id)
       setTrackEq((m) => (m[id] ? Object.fromEntries(Object.entries(m).filter(([key]) => key !== id)) : m))
+      resolver.release(id)
       revokeTrack(t)
       db.deleteTrack(id).catch(() => {})
     },
-    [cancelTransition, getEl, load],
+    [cancelTransition, getEl, load, resolver],
   )
 
   const clear = useCallback(() => {
@@ -404,6 +472,7 @@ export function usePlayer(): PlayerApi {
       d.el.removeAttribute('src')
       d.el.load()
     })
+    resolver.releaseAll()
     state.current.tracks.forEach(revokeTrack)
     history.current = []
     state.current.currentId = null
@@ -415,7 +484,7 @@ export function usePlayer(): PlayerApi {
     setTrackEq({})
     db.clearTracks().catch(() => {})
     db.setMeta('resume', null).catch(() => {})
-  }, [cancelTransition, engine])
+  }, [cancelTransition, engine, resolver])
 
   const reorder = useCallback((from: number, to: number) => {
     const vid = state.current.viewId
@@ -554,10 +623,15 @@ export function usePlayer(): PlayerApi {
     return () => clearInterval(id)
   }, [sleeping, engine, cancelTransition, notify])
 
+  // progress of decoding the current track
+  useEffect(() => resolver.onProgress((id, fraction) => {
+    if (id === state.current.currentId) setDecoding(fraction)
+  }), [resolver])
+
   // ---- persistence ----
   const saveResume = useCallback(() => {
     const id = state.current.currentId
-    if (!id || !state.current.hydrated) return
+    if (!id || !state.current.hydrated || awaitingSrc.current) return
     db.setMeta('resume', { id, time: getEl().currentTime || 0 }).catch(() => {})
   }, [getEl])
 
@@ -661,9 +735,24 @@ export function usePlayer(): PlayerApi {
           x.pending = n
           const idle = otherDeck(active.current)
           const o = engine.decks[idle].el
-          if (o.getAttribute('src') !== n.url) {
-            o.src = n.url
-            o.load()
+          resolver.retain([state.current.currentId ?? '', n.id])
+          const preloadSrc = resolver.urlFor(n)
+          if (preloadSrc) {
+            if (o.getAttribute('src') !== preloadSrc) {
+              o.src = preloadSrc
+              o.load()
+            }
+          } else {
+            // WAV/FLAC that needs a look or a decode: start it now so it is ready by the time this track ends
+            resolver
+              .resolve(n)
+              .then((url) => {
+                if (x.pending?.id === n.id && o.getAttribute('src') !== url) {
+                  o.src = url
+                  o.load()
+                }
+              })
+              .catch(() => {})
           }
           applyNorm(idle, n) // pre-compute the next track's gain while the current one plays
         }
@@ -693,10 +782,13 @@ export function usePlayer(): PlayerApi {
       if (id && Number.isFinite(d)) setTracks((l) => l.map((t) => (t.id === id && !t.duration ? { ...t, duration: d } : t)))
     }
     const onPlay = (e: Event) => {
-      if (isActive(e)) setPlaying(true)
+      if (!isActive(e)) return
+      failStreak.current = 0
+      setPlaying(true)
     }
     const onPause = (e: Event) => {
       if (!isActive(e)) return
+      playIntent.current = false
       setPlaying(false)
       saveResume()
     }
@@ -709,7 +801,35 @@ export function usePlayer(): PlayerApi {
       } else next(true)
     }
     const onErr = (e: Event) => {
-      if (isActive(e) && getEl().getAttribute('src')) next(true)
+      if (!isActive(e)) return
+      const el = getEl()
+      const src = el.getAttribute('src')
+      if (!src) return
+      const current = state.current.tracks.find((t) => t.id === state.current.currentId)
+      if (current && src === current.url) {
+        // the browser rejected the original file; if it is WAV or FLAC, decode it ourselves and try again
+        const token = ++loadToken.current
+        awaitingSrc.current = true
+        resolver
+          .isDecodable(current)
+          .then((ok) => {
+            if (!ok) throw new AudioDecodeError('not a WAV or FLAC file', 'unsupported')
+            return resolver.forceDecode(current)
+          })
+          .then((url) => {
+            if (token !== loadToken.current) return
+            awaitingSrc.current = false
+            el.src = url
+            if (playIntent.current) startPlay(el)
+          })
+          .catch(() => {
+            if (token !== loadToken.current) return
+            awaitingSrc.current = false
+            skipUnplayable.current()
+          })
+        return
+      }
+      skipUnplayable.current()
     }
     const bound = engine.decks.map((d) => {
       const el = d.el
@@ -733,7 +853,7 @@ export function usePlayer(): PlayerApi {
         el.removeEventListener('error', onErr)
       })
     }
-  }, [engine, getEl, next, pickNext, beginTransition, saveResume, startPlay, applyNorm])
+  }, [engine, getEl, next, pickNext, beginTransition, saveResume, startPlay, applyNorm, resolver])
 
   // toggling normalization re-applies (or clears) the gain on the active deck
   useEffect(() => {
@@ -853,7 +973,7 @@ export function usePlayer(): PlayerApi {
   return {
     engine, tracks, queue, playlists, viewId, setViewId, current, currentId, playing, time, duration, volume, muted,
     repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, normalize, setNormalize, eq, eqOn, setEqOn, setEqBand, applyPreset, eqBands, updateEqBand, addEqBand, removeEqBand, resetEq, eqRemembered, setEqRemembered, eqPresets, saveEqPreset, loadEqPreset, deleteEqPreset, spatial, setSpatial, reverb, setReverb, dynamics, setDynamics, stereo, setStereo, tone, setTone, sleepLeft, setSleep,
-    loading, notice, hydrated,
+    loading, notice, hydrated, decoding,
     play, toggle, next: () => next(false), prev, seek, seekBy, setVolume, volumeBy, toggleMute,
     cycleRepeat, toggleShuffle, addFiles, attachLrc, remove, clear, reorder,
     createPlaylist, addToPlaylist, deletePlaylist,

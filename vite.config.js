@@ -5,6 +5,8 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   base: './',
   plugins: [react()],
+  // the lossless-decoder worker is loaded as an ES module (supported by every browser and WebView this app targets)
+  worker: { format: 'es' },
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],

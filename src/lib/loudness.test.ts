@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_GAIN_DB, MIN_GAIN_DB, TARGET_DBFS, estimateGainDb, gainFromSamples } from './loudness'
+import { encodeFlac, floatToInt } from '../test-utils/flac-encoder'
+import { encodeWav } from '../test-utils/wav'
+import { MAX_GAIN_DB, MIN_GAIN_DB, TARGET_DBFS, estimateGainDb, gainFromChunks, gainFromSamples } from './loudness'
 
 /** A sine wave of the given peak amplitude (RMS = amplitude / sqrt(2)). */
 function sine(amplitude: number, length = 48_000, cycles = 440): Float32Array {
@@ -77,5 +79,54 @@ describe('estimateGainDb', () => {
 
   it('returns 0 when audio decoding is unavailable (jsdom has no OfflineAudioContext)', async () => {
     expect(await estimateGainDb(new Blob([new Uint8Array(16)]))).toBe(0)
+  })
+})
+
+describe('gainFromChunks', () => {
+  const samples = sine(0.1, 48_000)
+
+  it('gives the same answer as measuring the whole signal at once, however it is split', () => {
+    const whole = gainFromSamples(samples)
+    for (const size of [1, 7, 1000, 48_000]) {
+      const chunks: Float32Array[] = []
+      for (let i = 0; i < samples.length; i += size) chunks.push(samples.subarray(i, i + size))
+      expect(gainFromChunks(chunks)).toBe(whole)
+    }
+  })
+
+  it('handles no input, empty chunks and silence', () => {
+    expect(gainFromChunks([])).toBe(0)
+    expect(gainFromChunks([new Float32Array(0)])).toBe(0)
+    expect(gainFromChunks([new Float32Array(1000)])).toBe(0)
+  })
+
+  it('accepts any array-like and any iterable', () => {
+    expect(gainFromChunks([[0.1, -0.1, 0.1, -0.1]])).toBeCloseTo(2, 1)
+    expect(gainFromChunks((function* () { yield samples })())).toBe(gainFromSamples(samples))
+  })
+})
+
+describe('estimateGainDb without a browser decoder (the JavaScript fallback)', () => {
+  const tone = sine(0.1, 48_000) // amplitude 0.1 => +5 dB to reach the target
+
+  it('measures a FLAC file', async () => {
+    const flac = encodeFlac([floatToInt(tone, 16)], { sampleRate: 48000, bitsPerSample: 16 })
+    expect(await estimateGainDb(new Blob([flac]))).toBeCloseTo(5, 0)
+  })
+
+  it('measures a WAV file', async () => {
+    expect(await estimateGainDb(new Blob([encodeWav([tone], { format: 'float32', sampleRate: 48000 })]))).toBeCloseTo(5, 0)
+  })
+
+  it('only looks at the first channel of a stereo file', async () => {
+    const quiet = sine(0.1, 48_000)
+    const loud = sine(0.9, 48_000)
+    const flac = encodeFlac([floatToInt(quiet, 16), floatToInt(loud, 16)], { sampleRate: 48000, bitsPerSample: 16 })
+    expect(await estimateGainDb(new Blob([flac]))).toBeCloseTo(5, 0)
+  })
+
+  it('returns 0 for anything it cannot decode', async () => {
+    expect(await estimateGainDb(new Blob([new Uint8Array(2000)]))).toBe(0)
+    expect(await estimateGainDb(new Blob([]))).toBe(0)
   })
 })

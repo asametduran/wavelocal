@@ -33,7 +33,7 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - [x] C2. Reverb room simulation: `ConvolverNode` with procedurally generated impulse responses (small room, hall, cathedral, plate), pre-delay, decay, wet/dry mix
 - [x] C3. Parametric EQ: editable band frequency, Q and gain with draggable response curve, band types (peak, shelf, notch), keep the 10-band graphic EQ as a preset view; save/load custom presets
 - [x] C4. Dynamics and stereo: compressor/limiter, stereo widener, mono downmix, bass/treble shelves, per-track EQ memory
-- [ ] C5. Lossless decoder fallbacks: robust WAV and FLAC support when the browser cannot play them natively (detect with `canPlayType`; pure-JS or WASM decoder to `AudioBuffer`, streamed playback path); tests with synthetic WAV/FLAC fixtures
+- [x] C5. Lossless decoder fallbacks: robust WAV and FLAC support when the browser cannot play them natively (detect with `canPlayType`; pure-JS or WASM decoder to `AudioBuffer`, streamed playback path); tests with synthetic WAV/FLAC fixtures
 
 ### Pack D - Desktop app with tray and global hotkeys
 - [ ] D1. Electron wrapper under `desktop/` (main + preload, secure defaults: contextIsolation, no nodeIntegration, CSP) loading the built web app; `npm run desktop:dev` and `desktop:build`
@@ -93,3 +93,4 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - C2: added reverb (ConvolverNode with procedural small room / hall / cathedral / plate impulse responses, pre-delay, decay, equal-power wet/dry, debounced and ducked IR swaps, decay-shape preview); 45 unit tests incl. RT60 by Schroeder integration and 14 e2e tests reading the live convolver.
 - C3: added a parametric EQ (single band model shared with the 10-band graphic view; editable type/frequency/Q/gain via a draggable, scrollable, keyboard-operable response curve; peak/shelf/notch, up to 12 bands, click-free bypass and add/remove, custom presets; model checked against the browser's real filter response in 27 e2e tests).
 - C4: added tone shelves, a compressor (with transfer-curve preview and live meter), a limiter, a mid/side stereo widener and mono downmix, and per-track EQ memory (persisted in IndexedDB); trims Web Audio's hidden compressor make-up gain; 42 dynamics unit tests and 30 e2e tests that measure the real per-channel output.
+- C5: added lossless decoder fallbacks: pure-TS WAV (8/16/24/32-bit, float32/64, A-law/µ-law, extensible, RF64) and complete FLAC decoders with CRC/MD5 checks and concealment, streamed to 16-bit PCM in a lazy-loaded Web Worker; detection by content sniffing, canPlayType and native playback errors; also used for loudness measurement; verified sample-for-sample against Chromium's native FLAC decoder.

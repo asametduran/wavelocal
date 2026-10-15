@@ -264,6 +264,8 @@ export interface PlayerApi {
   loading: boolean
   notice: string
   hydrated: boolean
+  /** Progress (0..1) while the current WAV/FLAC file is being decoded in JavaScript, otherwise null. */
+  decoding: number | null
   play: (id: string) => void
   toggle: () => void
   next: () => void

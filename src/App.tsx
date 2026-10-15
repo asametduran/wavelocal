@@ -153,6 +153,12 @@ export default function App() {
         </div>
       )}
 
+      {p.decoding !== null && (
+        <div className="fixed right-4 top-16 z-[60] flex items-center gap-2 rounded-full bg-raised px-4 py-2 text-sm shadow-lg" role="status">
+          <Loader2 size={16} className="animate-spin text-accent" /> Decoding lossless audio… {Math.round(p.decoding * 100)}%
+        </div>
+      )}
+
       {p.loading && (
         <div className="fixed right-4 top-4 z-[60] flex items-center gap-2 rounded-full bg-raised px-4 py-2 text-sm shadow-lg" role="status">
           <Loader2 size={16} className="animate-spin text-accent" /> Reading tags…

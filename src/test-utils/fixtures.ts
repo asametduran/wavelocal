@@ -5,6 +5,8 @@
 import { clipped, concat, fadeInOut, silence, sine, sineAtRms, sweep } from './signals'
 import { encodeWav } from './wav'
 import type { WavFormat } from './wav'
+import { encodeFlac, floatToInt } from './flac-encoder'
+import type { FlacEncodeOptions } from './flac-encoder'
 
 export interface Fixture {
   /** Stable id, also the file stem. */
@@ -118,6 +120,20 @@ export function buildFixture(name: FixtureName): Fixture {
     format,
     bytes: encodeWav(channels, { sampleRate, format }),
   }
+}
+
+/** The raw channels of a fixture before they are encoded to any file format. */
+export function fixtureChannels(name: FixtureName): { sampleRate: number; channels: Float32Array[] } {
+  const recipe: Recipe = recipes[name]
+  const sampleRate = recipe.sampleRate ?? 44100
+  return { sampleRate, channels: recipe.channels(sampleRate, recipe.seconds) }
+}
+
+/** The same audio as a fixture, encoded as FLAC (16-bit unless told otherwise). */
+export function buildFlac(name: FixtureName, options: Partial<FlacEncodeOptions> = {}): Uint8Array<ArrayBuffer> {
+  const { sampleRate, channels } = fixtureChannels(name)
+  const bitsPerSample = options.bitsPerSample ?? 16
+  return encodeFlac(channels.map((c) => floatToInt(c, bitsPerSample)), { sampleRate, bitsPerSample, blockSize: 4096, subframe: 'fixed', order: 2, ...options })
 }
 
 /** A `File` for a fixture (works in jsdom and in Node 20+). `lastModified` is pinned so the dedupe key is stable. */
