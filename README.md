@@ -80,6 +80,8 @@ The whole app is TypeScript with `strict`, `noUncheckedIndexedAccess` and `noImp
 
 First-time e2e setup: `npx playwright install chromium`. No audio files are committed: every test generates synthetic WAV/ID3 data in code (`src/test-utils/`), including sine, sweep, silence, clipped and different-loudness fixtures. The e2e tests also inspect the real Web Audio graph (filter gains, normalization gain nodes, crossfade overlap) rather than only the DOM.
 
+CI (`.github/workflows/ci.yml`) runs the typecheck, unit tests and e2e suite on every push and pull request, separately from the APK build. Playwright browsers are cached by version, and a failed e2e run uploads its traces, screenshots and HTML report as a build artifact.
+
 ## Architecture
 
 ```
