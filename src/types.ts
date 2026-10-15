@@ -47,6 +47,28 @@ export type TransitionMode = 'off' | 'gapless' | 'crossfade'
 /** Ten graphic-EQ band gains in dB (low to high frequency). */
 export type EqGains = number[]
 
+/** Filter shapes available for an equalizer band (the Web Audio biquad types the editor exposes). */
+export type BandType = 'peaking' | 'lowshelf' | 'highshelf' | 'notch'
+
+/** One equalizer band. The 10-band graphic EQ is simply ten of these at fixed frequencies. */
+export interface EqBand {
+  /** Stable identity (survives edits and reordering); graphic bands are g0..g9. */
+  id: string
+  type: BandType
+  /** Centre / corner frequency in Hz. */
+  frequency: number
+  /** Quality factor (width). Ignored by shelves. */
+  q: number
+  /** Boost/cut in dB. Ignored by notches. */
+  gain: number
+}
+
+/** A user-saved equalizer curve. */
+export interface EqPreset {
+  name: string
+  bands: EqBand[]
+}
+
 /** Playback position saved in the `resume` meta key. */
 export interface ResumePoint {
   id: string
@@ -92,7 +114,8 @@ export interface Settings {
   repeat: RepeatMode
   shuffle: boolean
   transition: TransitionMode
-  eq: EqGains
+  eqBands: EqBand[]
+  eqPresets: EqPreset[]
   eqOn: boolean
   speed: number
   preservePitch: boolean
@@ -152,8 +175,21 @@ export interface PlayerApi {
   eq: EqGains
   eqOn: boolean
   setEqOn: Dispatch<SetStateAction<boolean>>
+  /** Gains of every band in order (for the graphic view). */
   setEqBand: (index: number, gainDb: number) => void
+  /** Apply a built-in graphic preset (replaces the bands with the standard 10-band layout). */
   applyPreset: (name: string) => void
+  eqBands: EqBand[]
+  updateEqBand: (id: string, patch: Partial<Omit<EqBand, 'id'>>) => void
+  /** Add a band (default: a peak at 1 kHz) and return its id, or null when the limit is reached. */
+  addEqBand: (band?: Partial<Omit<EqBand, 'id'>>) => string | null
+  removeEqBand: (id: string) => void
+  /** Back to the flat 10-band graphic layout. */
+  resetEq: () => void
+  eqPresets: EqPreset[]
+  saveEqPreset: (name: string) => void
+  loadEqPreset: (name: string) => void
+  deleteEqPreset: (name: string) => void
   spatial: SpatialSettings
   /** Merge a change into the spatial settings (values are clamped/sanitized). */
   setSpatial: (patch: Partial<SpatialSettings>) => void

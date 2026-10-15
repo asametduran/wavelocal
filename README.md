@@ -22,7 +22,8 @@ A modern dark-mode music player that runs entirely in your browser. Your files a
 
 ## Audiophile toolkit
 
-- **DSP engine** — Web Audio graph: two playback decks → 10-band equalizer (31 Hz–16 kHz, ±12 dB) → 3D spatial stage → reverb → analyser → master fade. Presets: Flat, Bass Boost, Vocal, Rock, Acoustic, Electronic, Treble Boost. Press `E` for the Sound & tools panel.
+- **DSP engine** — Web Audio graph: two playback decks → equalizer → 3D spatial stage → reverb → analyser → master fade. Presets: Flat, Bass Boost, Vocal, Rock, Acoustic, Electronic, Treble Boost. Press `E` for the Sound & tools panel.
+- **Equalizer** — the classic 10-band graphic EQ (31 Hz–16 kHz, ±12 dB, with presets) and a full **parametric** editor over the very same bands: drag handles on a live response curve to set frequency and gain, scroll to change Q, pick the filter type (peak, low/high shelf, notch), add up to 12 bands, and save/load your own curves. Everything is keyboard-operable; the drawn curve uses the same biquad maths as the audio engine (checked in tests against the browser's own `getFrequencyResponse`).
 - **3D spatial audio** — an HRTF `PannerNode` with a draggable (and keyboard-operable) position pad, distance and equal-power wet/dry controls, and an "8D" auto-rotate mode that circles the sound around your head at an adjustable speed. Best on headphones; off by default and costs nothing while off.
 - **Reverb** — a `ConvolverNode` fed by procedurally generated impulse responses (small room, concert hall, cathedral, plate): each room has its own early reflections and tail colour, and the Decay control is the true RT60 (verified in tests by Schroeder integration). Pre-delay and an equal-power wet/dry mix; no impulse-response files are shipped or downloaded.
 - **Visualizer** — live canvas spectrum bars or waveform on the Now Playing screen (click to switch).
@@ -98,6 +99,7 @@ src/
 ├── lib/
 │   ├── engine.ts         Web Audio graph: decks, 10-band EQ, spatial stage, analyser, fades
 │   ├── spatial.ts        pure 3D audio geometry (pad → position, orbit curves, wet/dry law)
+│   ├── eq.ts             band model, biquad maths, response curve, custom presets
 │   ├── reverb.ts         procedural room impulse responses + reverb settings
 │   ├── dsp.ts            shared numeric helpers (clamp, seeded RNG, equal-power mix)
 │   ├── lrc.ts            LRC parser + active-line lookup

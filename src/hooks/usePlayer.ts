@@ -5,8 +5,9 @@ import { estimateGainDb } from '../lib/loudness'
 import { buildTrack, filesToTracks, lrcFromFile, norm, revokeTrack } from '../lib/metadata'
 import { moveItem, nextRepeat, pickTrack, resolveQueue } from '../lib/queue'
 import { mergeSpatial, normalizeSpatial } from '../lib/spatial'
+import { addBand, bandsFromSettings, deletePreset, findPreset, graphicBands, normalizePresets, removeBand, savePreset, updateBand } from '../lib/eq'
 import { mergeReverb, normalizeReverb } from '../lib/reverb'
-import type { EqGains, Lyrics, PlayerApi, Playlist, RepeatMode, ReverbSettings, Settings, SpatialSettings, Track, TransitionMode } from '../types'
+import type { EqBand, EqPreset, Lyrics, PlayerApi, Playlist, RepeatMode, ReverbSettings, Settings, SpatialSettings, Track, TransitionMode } from '../types'
 
 const clamp = (v: number, a: number, b: number): number => Math.min(b, Math.max(a, v))
 const XFADE_SECS = 5
@@ -67,7 +68,8 @@ export function usePlayer(): PlayerApi {
   const [repeat, setRepeat] = useState<RepeatMode>(saved.repeat ?? 'off')
   const [shuffle, setShuffle] = useState(saved.shuffle ?? false)
   const [transition, setTransition] = useState<TransitionMode>(saved.transition ?? 'off')
-  const [eq, setEq] = useState<EqGains>(Array.isArray(saved.eq) && saved.eq.length === 10 ? saved.eq : (EQ_PRESETS.Flat ?? new Array<number>(10).fill(0)))
+  const [eqBands, setEqBands] = useState<EqBand[]>(() => bandsFromSettings(saved))
+  const [eqPresets, setEqPresets] = useState<EqPreset[]>(() => normalizePresets(saved.eqPresets))
   const [eqOn, setEqOn] = useState(saved.eqOn ?? true)
   const [speed, setSpeedState] = useState(clamp(saved.speed ?? 1, 0.5, 2))
   const [preservePitch, setPreservePitch] = useState(saved.preservePitch ?? true)
@@ -428,11 +430,37 @@ export function usePlayer(): PlayerApi {
   }, [])
 
   // ---- equalizer ----
-  const setEqBand = useCallback((i: number, v: number) => setEq((l) => l.map((x, k) => (k === i ? v : x))), [])
+  // The bands are the source of truth; refs let the imperative actions below read the latest list without stale closures.
+  const bandsRef = useRef(eqBands)
+  bandsRef.current = eqBands
+  const presetsRef = useRef(eqPresets)
+  presetsRef.current = eqPresets
+  const eq = useMemo(() => eqBands.map((b) => b.gain), [eqBands])
+
+  const setEqBand = useCallback((index: number, gain: number) => {
+    const band = bandsRef.current[index]
+    if (band) setEqBands((l) => updateBand(l, band.id, { gain }))
+  }, [])
   const applyPreset = useCallback((name: string) => {
     const preset = EQ_PRESETS[name]
-    if (preset) setEq(preset.slice())
+    if (preset) setEqBands(graphicBands(preset))
   }, [])
+  const updateEqBand = useCallback((id: string, patch: Partial<Omit<EqBand, 'id'>>) => setEqBands((l) => updateBand(l, id, patch)), [])
+  const addEqBand = useCallback((band?: Partial<Omit<EqBand, 'id'>>) => {
+    const next = addBand(bandsRef.current, band)
+    if (next === bandsRef.current) return null
+    bandsRef.current = next
+    setEqBands(next)
+    return next[next.length - 1]?.id ?? null
+  }, [])
+  const removeEqBand = useCallback((id: string) => setEqBands((l) => removeBand(l, id)), [])
+  const resetEq = useCallback(() => setEqBands(graphicBands()), [])
+  const saveEqPreset = useCallback((name: string) => setEqPresets((l) => savePreset(l, name, bandsRef.current)), [])
+  const loadEqPreset = useCallback((name: string) => {
+    const preset = findPreset(presetsRef.current, name)
+    if (preset) setEqBands(preset.bands.map((b) => ({ ...b })))
+  }, [])
+  const deleteEqPreset = useCallback((name: string) => setEqPresets((l) => deletePreset(l, name)), [])
 
   // ---- spatial audio ----
   const setSpatial = useCallback((patch: Partial<SpatialSettings>) => setSpatialState((s) => mergeSpatial(s, patch)), [])
@@ -543,13 +571,13 @@ export function usePlayer(): PlayerApi {
     }
   }, [playing, saveResume])
   useEffect(() => {
-    const settings: Settings = { volume, muted, repeat, shuffle, transition, eq, eqOn, speed, preservePitch, normalize, spatial, reverb }
+    const settings: Settings = { volume, muted, repeat, shuffle, transition, eqBands, eqPresets, eqOn, speed, preservePitch, normalize, spatial, reverb }
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
     } catch {
       /* ignore */
     }
-  }, [volume, muted, repeat, shuffle, transition, eq, eqOn, speed, preservePitch, normalize, spatial, reverb])
+  }, [volume, muted, repeat, shuffle, transition, eqBands, eqPresets, eqOn, speed, preservePitch, normalize, spatial, reverb])
 
   // a changed queue invalidates any preloaded "next" pick
   useEffect(() => {
@@ -679,9 +707,9 @@ export function usePlayer(): PlayerApi {
   }, [engine, speed, preservePitch])
 
   useEffect(() => {
-    engine.setEq(eq)
+    engine.setEqBands(eqBands)
     engine.setEqEnabled(eqOn)
-  }, [engine, eq, eqOn])
+  }, [engine, eqBands, eqOn])
 
   useEffect(() => {
     engine.setSpatial(spatial)
@@ -754,7 +782,7 @@ export function usePlayer(): PlayerApi {
 
   return {
     engine, tracks, queue, playlists, viewId, setViewId, current, currentId, playing, time, duration, volume, muted,
-    repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, normalize, setNormalize, eq, eqOn, setEqOn, setEqBand, applyPreset, spatial, setSpatial, reverb, setReverb, sleepLeft, setSleep,
+    repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, normalize, setNormalize, eq, eqOn, setEqOn, setEqBand, applyPreset, eqBands, updateEqBand, addEqBand, removeEqBand, resetEq, eqPresets, saveEqPreset, loadEqPreset, deleteEqPreset, spatial, setSpatial, reverb, setReverb, sleepLeft, setSleep,
     loading, notice, hydrated,
     play, toggle, next: () => next(false), prev, seek, seekBy, setVolume, volumeBy, toggleMute,
     cycleRepeat, toggleShuffle, addFiles, attachLrc, remove, clear, reorder,

@@ -34,7 +34,8 @@ export const tone = (name: string, seconds = 0.1, frequency = 440): Upload => ({
 
 /**
  * Everything the page created that tests may want to inspect: playing media elements, EQ filters and gain nodes.
- * Gain order follows AudioEngine.init(): [master, deck0.norm, deck0.crossfade, deck1.norm, deck1.crossfade, spatial.dry, spatial.wet, spatial.out, reverb.dry, reverb.wet, reverb.out].
+ * Gain order follows AudioEngine.init(): [master, eq.in, eq.bypass, eq.through, eq.out, deck0.norm, deck0.crossfade,
+ * deck1.norm, deck1.crossfade, spatial.dry, spatial.wet, spatial.out, reverb.dry, reverb.wet, reverb.out].
  */
 export interface AudioProbe {
   media: Set<HTMLMediaElement>
@@ -43,6 +44,8 @@ export interface AudioProbe {
   panners: PannerNode[]
   convolvers: ConvolverNode[]
   delays: DelayNode[]
+  /** Audio-node connections as the page made them (outgoing edges), so tests can walk the real signal path. */
+  edges: Map<AudioNode, Set<AudioNode>>
 }
 
 declare global {
@@ -51,12 +54,28 @@ declare global {
   }
 }
 
-export const GAIN = { master: 0, deck0Norm: 1, deck0Fade: 2, deck1Norm: 3, deck1Fade: 4, spatialDry: 5, spatialWet: 6, spatialOut: 7, reverbDry: 8, reverbWet: 9, reverbOut: 10 } as const
+export const GAIN = {
+  master: 0,
+  eqIn: 1,
+  eqBypass: 2,
+  eqThrough: 3,
+  eqOut: 4,
+  deck0Norm: 5,
+  deck0Fade: 6,
+  deck1Norm: 7,
+  deck1Fade: 8,
+  spatialDry: 9,
+  spatialWet: 10,
+  spatialOut: 11,
+  reverbDry: 12,
+  reverbWet: 13,
+  reverbOut: 14,
+} as const
 
 /** Record media elements and audio nodes created by the app (must run before the page loads). */
 export async function installAudioProbe(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const probe: AudioProbe = { media: new Set(), filters: [], gains: [], panners: [], convolvers: [], delays: [] }
+    const probe: AudioProbe = { media: new Set(), filters: [], gains: [], panners: [], convolvers: [], delays: [], edges: new Map() }
     window.__probe = probe
     const play = HTMLMediaElement.prototype.play
     HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
@@ -69,6 +88,23 @@ export async function installAudioProbe(page: Page): Promise<void> {
       probe.filters.push(node)
       return node
     }
+    type ConnectFn = (this: AudioNode, destination: AudioNode | AudioParam, output?: number, input?: number) => unknown
+    type DisconnectFn = (this: AudioNode, destination?: AudioNode | AudioParam | number) => void
+    const connect = AudioNode.prototype.connect as unknown as ConnectFn
+    const disconnect = AudioNode.prototype.disconnect as unknown as DisconnectFn
+    AudioNode.prototype.connect = function (this: AudioNode, destination: AudioNode | AudioParam, output?: number, input?: number) {
+      if (destination instanceof AudioNode) {
+        const out = probe.edges.get(this) ?? new Set<AudioNode>()
+        out.add(destination)
+        probe.edges.set(this, out)
+      }
+      return connect.call(this, destination, output, input)
+    } as typeof AudioNode.prototype.connect
+    AudioNode.prototype.disconnect = function (this: AudioNode, destination?: AudioNode | AudioParam | number) {
+      if (destination === undefined || typeof destination === 'number') probe.edges.delete(this)
+      else if (destination instanceof AudioNode) probe.edges.get(this)?.delete(destination)
+      return disconnect.call(this, destination)
+    } as typeof AudioNode.prototype.disconnect
     const panner = AudioContext.prototype.createPanner
     AudioContext.prototype.createPanner = function (this: AudioContext) {
       const node = panner.call(this)
@@ -265,6 +301,56 @@ export class PlayerPage {
         onsetEnergy,
       }
     })
+  }
+
+  /** The audio context's sample rate (needed to evaluate filter maths exactly as the browser does). */
+  async sampleRate(): Promise<number> {
+    return this.page.evaluate(() => window.__probe.gains[0]?.context.sampleRate ?? 0)
+  }
+
+  /** The equalizer filters that are really in the signal path between the EQ input and its "through" gain, in order. */
+  async liveEqFilters(): Promise<{ type: string; frequency: number; q: number; gain: number }[]> {
+    return this.page.evaluate(
+      ([inIndex, throughIndex]) => {
+        const { gains, edges } = window.__probe
+        const start = gains[inIndex as number]
+        const end = gains[throughIndex as number]
+        const found: BiquadFilterNode[] = []
+        let current: AudioNode | undefined = start
+        for (let hops = 0; current && hops < 64; hops++) {
+          const next: AudioNode | undefined = [...(edges.get(current) ?? [])].find((n) => n instanceof BiquadFilterNode || n === end)
+          if (!next || next === end) break
+          found.push(next as BiquadFilterNode)
+          current = next
+        }
+        return found.map((f) => ({ type: f.type, frequency: f.frequency.value, q: f.Q.value, gain: f.gain.value }))
+      },
+      [GAIN.eqIn, GAIN.eqThrough],
+    )
+  }
+
+  /** Combined response (dB) of the live equalizer chain at the given frequencies, measured by the browser itself. */
+  async chainResponseDb(frequencies: number[]): Promise<number[]> {
+    return this.page.evaluate(
+      ([inIndex, throughIndex, freqs]) => {
+        const { gains, edges } = window.__probe
+        const end = gains[throughIndex as number]
+        const f32 = Float32Array.from(freqs as number[])
+        const total = new Array<number>(f32.length).fill(0)
+        let current: AudioNode | undefined = gains[inIndex as number]
+        for (let hops = 0; current && hops < 64; hops++) {
+          const next: AudioNode | undefined = [...(edges.get(current) ?? [])].find((n) => n instanceof BiquadFilterNode || n === end)
+          if (!next || next === end) break
+          const mag = new Float32Array(f32.length)
+          const phase = new Float32Array(f32.length)
+          ;(next as BiquadFilterNode).getFrequencyResponse(f32, mag, phase)
+          mag.forEach((m, i) => (total[i] = (total[i] ?? 0) + 20 * Math.log10(m)))
+          current = next
+        }
+        return total
+      },
+      [GAIN.eqIn, GAIN.eqThrough, frequencies] as const,
+    )
   }
 
   /** How many media elements are currently playing (2 during a crossfade overlap). */

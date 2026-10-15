@@ -1,8 +1,8 @@
 import { Moon, Gauge, Palette, Shuffle as Blend, SlidersHorizontal, Volume2, X } from 'lucide-react'
 import { ACCENT_PRESETS, DEFAULT_ACCENT } from '../hooks/useTheme'
+import EqSection from './EqSection'
 import ReverbSection from './ReverbSection'
 import SpatialSection from './SpatialSection'
-import { EQ_LABELS, EQ_MAX_DB, EQ_PRESETS } from '../lib/engine'
 import type { CSSProperties } from 'react'
 import type { PlayerApi, TransitionMode } from '../types'
 
@@ -13,12 +13,10 @@ const MODES: readonly (readonly [id: TransitionMode, label: string, description:
   ['crossfade', 'Crossfade', 'Tracks blend into each other over ~5 seconds.'],
 ]
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-const same = (a: readonly number[], b: readonly number[]) => a.every((v, i) => v === b[i])
 
 const chip = (on: boolean) =>
   `rounded-full px-4 py-2 text-sm font-semibold transition ${on ? 'bg-accent text-black' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
 
-/** Equalizer, sleep timer and transition settings. Bottom sheet on phones, centered dialog elsewhere. */
 interface ToolsModalProps {
   p: PlayerApi
   open: boolean
@@ -27,9 +25,9 @@ interface ToolsModalProps {
   setAccent: (hex: string) => void
 }
 
+/** Sound tools: equalizer, spatial audio, reverb, speed, sleep timer and transitions. Bottom sheet on phones, centered dialog elsewhere. */
 export default function ToolsModal({ p, open, onClose, accent, setAccent }: ToolsModalProps) {
   if (!open) return null
-  const activePreset = Object.keys(EQ_PRESETS).find((k) => same(EQ_PRESETS[k] ?? [], p.eq))
   const mode = MODES.find((m) => m[0] === p.transition) || MODES[0]
 
   return (
@@ -45,50 +43,7 @@ export default function ToolsModal({ p, open, onClose, accent, setAccent }: Tool
           </button>
         </div>
 
-        <section aria-label="Equalizer">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">Equalizer</h3>
-            <button
-              role="switch"
-              aria-checked={p.eqOn}
-              onClick={() => p.setEqOn(!p.eqOn)}
-              className={`relative h-7 w-12 rounded-full transition ${p.eqOn ? 'bg-accent' : 'bg-white/15'}`}
-              aria-label="Enable equalizer"
-            >
-              <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-all ${p.eqOn ? 'left-6' : 'left-1'}`} />
-            </button>
-          </div>
-          <div className="mb-4 flex flex-wrap gap-2">
-            {Object.keys(EQ_PRESETS).map((name) => (
-              <button key={name} onClick={() => p.applyPreset(name)} className={chip(activePreset === name)} aria-pressed={activePreset === name}>
-                {name}
-              </button>
-            ))}
-          </div>
-          <div className={`flex justify-between gap-1 rounded-2xl bg-base/60 px-2 py-4 transition-opacity ${p.eqOn ? '' : 'opacity-40'}`}>
-            {EQ_LABELS.map((label, i) => (
-              <div key={label} className="flex flex-col items-center gap-2">
-                <span className="w-9 text-center text-[11px] tabular-nums text-zinc-400">{(p.eq[i] ?? 0) > 0 ? '+' : ''}{p.eq[i] ?? 0}</span>
-                <div className="relative h-36 w-9">
-                  <input
-                    type="range"
-                    min={-EQ_MAX_DB}
-                    max={EQ_MAX_DB}
-                    step={0.5}
-                    value={p.eq[i]}
-                    onChange={(e) => p.setEqBand(i, parseFloat(e.target.value))}
-                    onDoubleClick={() => p.setEqBand(i, 0)}
-                    aria-label={`${label} Hz gain`}
-                    className="slider always absolute left-1/2 top-1/2 w-36 -translate-x-1/2 -translate-y-1/2 -rotate-90"
-                    style={{ '--p': `${(((p.eq[i] ?? 0) + EQ_MAX_DB) / (EQ_MAX_DB * 2)) * 100}%` } as CSSProperties}
-                  />
-                </div>
-                <span className="text-[11px] text-zinc-500">{label}</span>
-              </div>
-            ))}
-          </div>
-          <p className="mt-2 text-xs text-zinc-500">Double-click a band to reset it. Values are in dB.</p>
-        </section>
+        <EqSection p={p} />
 
         <SpatialSection p={p} />
 

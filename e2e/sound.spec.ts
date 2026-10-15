@@ -44,20 +44,26 @@ test.describe('sound tools', () => {
       await expect(app.tools.getByRole('button', { name: 'Flat' })).toHaveAttribute('aria-pressed', 'true')
     })
 
-    test('switching the equalizer off flattens the filters but keeps the settings', async () => {
+    test('switching the equalizer off bypasses the filters but keeps the settings', async () => {
       await app.importFiles(wav('tone-440', 'a.wav'))
       await app.play('a')
       await app.openTools()
       await app.tools.getByRole('button', { name: 'Rock', exact: true }).click()
       await expect.poll(() => app.filterGain(0)).toBeCloseTo(5, 0)
 
+      await expect.poll(() => app.gainValue(GAIN.eqThrough)).toBe(1)
+      await expect.poll(() => app.gainValue(GAIN.eqBypass)).toBe(0)
+
       const toggle = app.tools.getByRole('switch', { name: 'Enable equalizer' })
       await toggle.click()
       await expect(toggle).toHaveAttribute('aria-checked', 'false')
-      await expect.poll(() => app.filterGain(0)).toBeCloseTo(0, 0)
-      await expect(app.tools.getByRole('slider', { name: '31 Hz gain' })).toHaveValue('5')
+      await expect.poll(() => app.gainValue(GAIN.eqBypass)).toBeCloseTo(1, 2) // the dry path takes over...
+      await expect.poll(() => app.gainValue(GAIN.eqThrough)).toBeCloseTo(0, 2)
+      await expect(app.tools.getByRole('slider', { name: '31 Hz gain' })).toHaveValue('5') // ...and the settings are kept
 
       await toggle.click()
+      await expect.poll(() => app.gainValue(GAIN.eqThrough)).toBeCloseTo(1, 2)
+      await expect.poll(() => app.gainValue(GAIN.eqBypass)).toBeCloseTo(0, 2)
       await expect.poll(() => app.filterGain(0)).toBeCloseTo(5, 0)
     })
 
@@ -83,7 +89,7 @@ test.describe('sound tools', () => {
       await expect(app.tools.getByText('1.50x')).toBeVisible()
       await expect.poll(async () => (await app.mediaSettings()).map((m) => m.rate)).toContain(1.5)
 
-      await app.tools.getByRole('button', { name: 'Reset' }).first().click()
+      await app.tools.getByRole('region', { name: 'Speed and pitch' }).getByRole('button', { name: 'Reset' }).click()
       await expect(app.tools.getByText('1.00x')).toBeVisible()
       await expect.poll(async () => (await app.mediaSettings()).every((m) => m.rate === 1)).toBe(true)
     })

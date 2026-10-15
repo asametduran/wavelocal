@@ -1,5 +1,6 @@
 /** Web Audio DSP engine: two playback decks -> 10-band EQ -> analyser -> master fade -> speakers. */
-import type { EqGains, ReverbSettings, SpatialSettings } from '../types'
+import type { EqBand, EqGains, ReverbSettings, SpatialSettings } from '../types'
+import { bandTypeInfo, graphicBands } from './eq'
 import { DEFAULT_SPATIAL, ORBIT_HORIZON_SECONDS, azimuth, equalPowerMix, orbitAngle, orbitCurve, orbitPosition, orbitRadiusMeters, orbitRadiusPad, padToPosition } from './spatial'
 import type { Point2 } from './spatial'
 import { DEFAULT_REVERB, generateImpulseResponse, impulseKey } from './reverb'
@@ -66,6 +67,8 @@ interface Orbit {
 const ORBIT_REFRESH_MS = 60_000
 const SPATIAL_OFF_DELAY_MS = 180
 const REVERB_OFF_DELAY_MS = 250
+/** How long a removed band keeps running (fading to flat) before it leaves the chain. */
+const EQ_RETIRE_MS = 60
 /** Wait for slider drags to settle before synthesizing a new impulse response. */
 const REVERB_REBUILD_DEBOUNCE_MS = 120
 /** Time the wet signal is muted around an impulse swap so it cannot click. */
@@ -93,10 +96,18 @@ export class AudioEngine {
   decks: [Deck, Deck]
   ctx: AudioContext | null = null
   analyser: AnalyserNode | null = null
-  filters: BiquadFilterNode[] = []
   master: GainNode | null = null
-  eq: EqGains = new Array<number>(EQ_FREQS.length).fill(0)
+  /** The equalizer bands (graphic or parametric); applied to the graph as soon as (and whenever) it exists. */
+  bands: EqBand[] = graphicBands()
   eqOn = true
+  private eqIn: GainNode | null = null
+  private eqBypass: GainNode | null = null
+  private eqThrough: GainNode | null = null
+  /** One biquad per band, keyed by band id so edits move a filter instead of re-assigning it to another band. */
+  private bandFilters = new Map<string, BiquadFilterNode>()
+  /** Filters of removed bands, kept in the chain while their gain fades to zero. */
+  private retiring: BiquadFilterNode[] = []
+  private eqTrimTimer: ReturnType<typeof setTimeout> | null = null
   /** Linear normalization gain per deck, applied when the graph exists. */
   normLin: [number, number] = [1, 1]
   /** Latest spatial settings; applied to the graph as soon as (and whenever) it exists. */
@@ -144,26 +155,22 @@ export class AudioEngine {
     if (!AC) return false
     try {
       const ctx = new AC()
-      const filters = EQ_FREQS.map((f, i) => {
-        const b = ctx.createBiquadFilter()
-        b.type = i === 0 ? 'lowshelf' : i === EQ_FREQS.length - 1 ? 'highshelf' : 'peaking'
-        b.frequency.value = f
-        b.Q.value = 1.1
-        return b
-      })
-      filters.forEach((f, i) => {
-        const prev = filters[i - 1]
-        if (prev) prev.connect(f)
-      })
-      const first = filters[0]
-      const last = filters[filters.length - 1]
-      if (!first || !last) throw new Error('EQ chain is empty')
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 1024
       analyser.smoothingTimeConstant = 0.8
       const master = ctx.createGain()
       analyser.connect(master)
       master.connect(ctx.destination)
+      // equalizer frame: fixed input/output nodes around a chain that can grow and shrink, plus a bypass path
+      const eqIn = ctx.createGain()
+      const eqBypass = ctx.createGain()
+      const eqThrough = ctx.createGain()
+      const eqOut = ctx.createGain()
+      eqIn.connect(eqBypass)
+      eqBypass.connect(eqOut)
+      eqThrough.connect(eqOut)
+      eqBypass.gain.value = this.eqOn ? 0 : 1
+      eqThrough.gain.value = this.eqOn ? 1 : 0
       this.decks.forEach((d, i) => {
         const node = ctx.createMediaElementSource(d.el)
         const norm = ctx.createGain() // per-track loudness normalization
@@ -171,15 +178,17 @@ export class AudioEngine {
         const gain = ctx.createGain() // crossfade
         node.connect(norm)
         norm.connect(gain)
-        gain.connect(first)
+        gain.connect(eqIn)
         d.node = node
         d.norm = norm
         d.gain = gain
       })
-      const tail = this.buildSpatial(ctx, last)
+      const tail = this.buildSpatial(ctx, eqOut)
       this.buildReverb(ctx, tail, analyser)
       this.ctx = ctx
-      this.filters = filters
+      this.eqIn = eqIn
+      this.eqBypass = eqBypass
+      this.eqThrough = eqThrough
       this.analyser = analyser
       this.master = master
       this.applyEq(true)
@@ -193,18 +202,82 @@ export class AudioEngine {
     }
   }
 
+  /** Bring the filter chain in line with `bands`: create/retire filters, move parameters smoothly, and set the bypass. */
   applyEq(immediate = false): void {
-    if (!this.ctx) return
-    const t = this.ctx.currentTime
-    this.filters.forEach((f, i) => {
-      const v = this.eqOn ? (this.eq[i] ?? 0) : 0
-      if (immediate) f.gain.setValueAtTime(v, t)
-      else f.gain.setTargetAtTime(v, t, 0.02)
-    })
+    const ctx = this.ctx
+    if (!ctx || !this.eqIn || !this.eqBypass || !this.eqThrough) return
+    const t = ctx.currentTime
+    let topologyChanged = false
+
+    const wanted = new Set(this.bands.map((b) => b.id))
+    for (const [id, filter] of this.bandFilters) {
+      if (wanted.has(id)) continue
+      this.bandFilters.delete(id)
+      topologyChanged = true
+      if (bandTypeInfo(filter.type as EqBand['type']).usesGain) {
+        glideTo(filter.gain, 0, t, 0.01) // fade out while still in the chain, then drop it
+        this.retiring.push(filter)
+      } else {
+        filter.disconnect() // a notch has no gain to fade
+      }
+    }
+    if (this.retiring.length && this.eqTrimTimer === null) {
+      this.eqTrimTimer = setTimeout(() => {
+        this.eqTrimTimer = null
+        for (const f of this.retiring) f.disconnect()
+        this.retiring = []
+        this.rebuildEqChain()
+      }, EQ_RETIRE_MS)
+    }
+
+    for (const band of this.bands) {
+      let filter = this.bandFilters.get(band.id)
+      if (!filter) {
+        filter = ctx.createBiquadFilter()
+        filter.type = band.type
+        filter.frequency.value = band.frequency
+        filter.Q.value = band.q
+        filter.gain.value = immediate ? band.gain : 0 // join the chain flat, then ease to the target
+        this.bandFilters.set(band.id, filter)
+        topologyChanged = true
+        if (!immediate) glideTo(filter.gain, band.gain, t, 0.02)
+        continue
+      }
+      if (filter.type !== band.type) filter.type = band.type
+      glideTo(filter.frequency, band.frequency, t, 0.02)
+      glideTo(filter.Q, band.q, t, 0.02)
+      glideTo(filter.gain, band.gain, t, 0.02)
+    }
+
+    if (topologyChanged) this.rebuildEqChain()
+    glideTo(this.eqBypass.gain, this.eqOn ? 0 : 1, t, 0.015)
+    glideTo(this.eqThrough.gain, this.eqOn ? 1 : 0, t, 0.015)
   }
 
-  setEq(gains: EqGains): void {
-    this.eq = gains.slice()
+  /** Re-wire input -> filters (in band order, then any fading ones) -> through. Runs synchronously, so there is no audible gap. */
+  private rebuildEqChain(): void {
+    const { eqIn, eqBypass, eqThrough } = this
+    if (!eqIn || !eqBypass || !eqThrough) return
+    eqIn.disconnect()
+    const chain = [
+      ...this.bands.flatMap((b) => {
+        const f = this.bandFilters.get(b.id)
+        return f ? [f] : []
+      }),
+      ...this.retiring,
+    ]
+    for (const f of chain) f.disconnect()
+    eqIn.connect(eqBypass)
+    let previous: AudioNode = eqIn
+    for (const f of chain) {
+      previous.connect(f)
+      previous = f
+    }
+    previous.connect(eqThrough)
+  }
+
+  setEqBands(bands: EqBand[]): void {
+    this.bands = bands
     this.applyEq()
   }
 
