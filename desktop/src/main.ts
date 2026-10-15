@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, protocol, screen, session } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, protocol, screen, session } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -6,6 +6,12 @@ import * as path from 'node:path'
 import { APP_SCHEME, APP_URL, buildCsp, isAllowedNavigation, isAllowedRequest, mimeFor, resolveAppPath, securityHeaders } from './security'
 import { DEFAULT_WINDOW, MIN_WINDOW, fitToDisplays, parseWindowState, snapshotWindowState } from './window-state'
 import type { WindowState } from './window-state'
+import { CHANNEL } from './ipc'
+import type { TrayCommand } from './ipc'
+import { DEFAULT_SETTINGS, parseDesktopSettings } from './settings'
+import type { DesktopSettings } from './settings'
+import { TrayController } from './tray'
+import { parseNowPlaying } from './tray-model'
 
 /**
  * Wavelocal desktop shell. It only hosts the built web app: all audio, library and settings logic lives in the web
@@ -50,6 +56,28 @@ function saveWindowState(win: BrowserWindow, previous: WindowState | null): Wind
     /* not being able to remember the window position is not worth an error dialog */
   }
   return state
+}
+
+// ---- settings ----
+
+const settingsFile = () => path.join(app.getPath('userData'), 'desktop-settings.json')
+let settings: DesktopSettings = { ...DEFAULT_SETTINGS }
+
+function loadSettings(): DesktopSettings {
+  try {
+    return parseDesktopSettings(JSON.parse(readFileSync(settingsFile(), 'utf8')))
+  } catch {
+    return { ...DEFAULT_SETTINGS }
+  }
+}
+
+function saveSettings(): void {
+  try {
+    mkdirSync(path.dirname(settingsFile()), { recursive: true })
+    writeFileSync(settingsFile(), JSON.stringify(settings))
+  } catch {
+    /* a preference that cannot be saved is not worth an error dialog */
+  }
 }
 
 // ---- session hardening ----
@@ -113,9 +141,50 @@ function buildMenu(): Menu {
   return Menu.buildFromTemplate(template)
 }
 
-// ---- window ----
+// ---- window and tray ----
 
 let mainWindow: BrowserWindow | null = null
+let tray: TrayController | null = null
+let quitting = false
+
+const windowShown = () => !!mainWindow?.isVisible() && !mainWindow.isMinimized()
+
+function showWindow(): void {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function createTray(): TrayController | null {
+  try {
+    return new TrayController({
+      isWindowVisible: windowShown,
+      getCloseToTray: () => settings.closeToTray,
+      command: (command: TrayCommand) => mainWindow?.webContents.send(CHANNEL.command, command),
+      toggleWindow: () => (windowShown() ? mainWindow?.hide() : showWindow()),
+      setCloseToTray: (value) => {
+        settings = { ...settings, closeToTray: value }
+        saveSettings()
+        tray?.refresh()
+      },
+      quit: () => app.quit(),
+    })
+  } catch {
+    return null // some Linux desktops have no tray: the app then behaves as if it had none (close quits)
+  }
+}
+
+/** Messages from the page are only honoured from the app's own top-level frame. */
+function registerIpc(): void {
+  ipcMain.on(CHANNEL.nowPlaying, (event, raw: unknown) => {
+    const frame = event.senderFrame
+    if (!frame || frame !== mainWindow?.webContents.mainFrame || !isAllowedNavigation(frame.url, devOrigin)) return
+    tray?.setNowPlaying(parseNowPlaying(raw))
+  })
+}
+
+// ---- window ----
 
 function createWindow(): BrowserWindow {
   const saved = fitToDisplays(loadWindowState() ?? DEFAULT_WINDOW, screen.getAllDisplays().map((d) => d.workArea))
@@ -148,9 +217,19 @@ function createWindow(): BrowserWindow {
 
   if (saved.maximized) win.maximize()
   win.once('ready-to-show', () => win.show())
-  win.on('close', () => {
+  win.on('close', (event) => {
     remembered = saveWindowState(win, remembered)
+    if (!quitting && tray && settings.closeToTray) {
+      event.preventDefault()
+      win.hide()
+    }
   })
+  win.on('minimize', () => {
+    if (tray && settings.closeToTray) win.hide()
+  })
+  win.on('show', () => tray?.refresh())
+  win.on('hide', () => tray?.refresh())
+  win.on('restore', () => tray?.refresh())
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null
   })
@@ -166,21 +245,39 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', () => {
     if (!mainWindow) return
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
+    showWindow()
+  })
+  app.on('before-quit', () => {
+    quitting = true
   })
 
   void app.whenReady().then(() => {
     app.setAppUserModelId('app.wavelocal.desktop')
     hardenSession()
     Menu.setApplicationMenu(buildMenu())
+    settings = loadSettings()
+    tray = createTray()
+    registerIpc()
     mainWindow = createWindow()
+    if (!app.isPackaged && process.env.WAVELOCAL_TEST === '1') exposeTestHooks()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow()
+      else showWindow()
     })
   })
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
   })
+}
+
+// ---- test hooks (unpackaged builds started by the smoke tests only) ----
+
+function exposeTestHooks(): void {
+  ;(globalThis as { __wavelocalTest?: unknown }).__wavelocalTest = {
+    tray: () => (tray ? { tooltip: tray.tooltip, menu: tray.menuLabels } : null),
+    activate: (label: string) => tray?.activate(label) ?? false,
+    settings: () => ({ ...settings }),
+    windowVisible: () => windowShown(),
+  }
 }

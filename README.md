@@ -98,6 +98,8 @@ npm run build && npm run desktop:start   # run the built app
 npm run desktop:test      # Electron smoke tests (needs a fresh `npm run build`)
 ```
 
+The shell adds a **system tray**: a now-playing tooltip, and a menu with play/pause, next, previous, show/hide, *Close to tray* (on by default; closing or minimizing the window then keeps the music playing in the tray) and quit. The page talks to it through a small typed bridge (`window.wavelocalDesktop.tray`) whose messages are validated on both sides.
+
 The page can detect the shell through `getDesktopBridge()` (`src/desktop-bridge.ts`); it is `null` in browsers and on Android.
 
 ## Architecture

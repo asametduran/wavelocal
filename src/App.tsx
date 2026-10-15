@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { Loader2, Upload } from 'lucide-react'
 import { usePlayer } from './hooks/usePlayer'
+import { useDesktopTray } from './hooks/useDesktopTray'
 import { useHotkeys } from './hooks/useHotkeys'
 import { useTvMode } from './hooks/useTvMode'
 import { useTheme } from './hooks/useTheme'
@@ -15,6 +16,7 @@ import PlayerBar, { MiniBar } from './components/PlayerBar'
 
 export default function App() {
   const p = usePlayer()
+  useDesktopTray(p)
   const [tv, setTv] = useTvMode()
   const [accent, setAccent] = useTheme()
   const fileInput = useRef<HTMLInputElement>(null)
