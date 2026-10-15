@@ -25,7 +25,7 @@ one headless Claude Code session after another, and only pauses when the Claude 
 ### Pack B - Automated headless testing with synthetic audio
 - [x] B1. Vitest + jsdom setup (`npm test`); unit tests for `lrc`, `format`, `loudness` (gainFromSamples), metadata pairing and ReplayGain parsing, queue/next/prev/shuffle logic extracted into pure functions
 - [x] B2. Synthetic audio pipeline: a test utility that generates WAV buffers/files (sine, sweep, silence, clipping, different loudness) used by unit and e2e tests
-- [ ] B3. Playwright headless e2e (`npm run test:e2e`): import synthetic files, play/pause/seek, queue reorder, search, playlists, persistence across reload, lyrics sync, EQ preset, sleep timer, crossfade track switch
+- [x] B3. Playwright headless e2e (`npm run test:e2e`): import synthetic files, play/pause/seek, queue reorder, search, playlists, persistence across reload, lyrics sync, EQ preset, sleep timer, crossfade track switch
 - [ ] B4. CI workflow `.github/workflows/ci.yml` running typecheck + unit + e2e on every push/PR (separate from the APK workflow); cache Playwright browsers; upload failure traces
 
 ### Pack C - Advanced DSP audio engine
@@ -87,3 +87,4 @@ one headless Claude Code session after another, and only pauses when the Claude 
 - A5: enabled full strictness (noUncheckedIndexedAccess, noImplicitReturns), build now typechecks first, README documents it; fixed Tailwind content globs to include .ts/.tsx (A4 had purged styles).
 - B1: added Vitest + jsdom (`npm test`, 140 unit tests) covering lrc, format, loudness, metadata pairing/ReplayGain, db records and a new pure `lib/queue` module (next/prev/shuffle/reorder) extracted from usePlayer.
 - B2: added synthetic audio pipeline in `src/test-utils` (WAV 16/24/float codec, sine/sweep/noise/clipped/loudness generators, ID3v2 builder tested against the real tag reader, named fixture catalog); 225 tests total.
+- B3: added Playwright headless e2e (`npm run test:e2e`, 66 tests in real Chromium) covering import, playback, seek, queue reorder, search, playlists, persistence, lyrics sync, EQ/speed/normalization (asserting the live Web Audio graph), sleep timer and gapless/crossfade.

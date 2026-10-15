@@ -10,3 +10,6 @@ evolution-last-run.err
 STOP
 loop.pid
 loop.heartbeat
+test-results
+playwright-report
+blob-report
