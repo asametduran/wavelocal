@@ -4,6 +4,7 @@ import type { AudioEngine } from './lib/engine'
 import type { Backup, PendingRestore, RestoreSummary } from './lib/backup'
 import type { TagEdit } from './lib/tags'
 import type { AudioFormat } from './lib/audio/probe/types'
+import type { SortSpec } from './lib/sort'
 import type { TagMeta } from './lib/tagfields'
 
 /** One lyric line; `t` is the start time in seconds, or null for unsynced (plain) lyrics. */
@@ -190,6 +191,8 @@ export interface Settings {
   dynamics: DynamicsSettings
   stereo: StereoSettings
   tone: ToneSettings
+  /** How the library and playlists are ordered (`library` = the order they are stored in). */
+  sort: SortSpec
 }
 
 /** Snapshot of live playback state exposed by the player. */
@@ -237,17 +240,33 @@ export interface UpgradeProgress {
 /** Result of `PlayerApi.editTags`. */
 export type TagEditOutcome = { ok: true; embedded: boolean } | { ok: false; error: string }
 
+/** How `PlayerApi.playFrom` starts. */
+export interface PlayFromOptions {
+  /** The track to start with: by default the first of the list, or a random one when shuffling. */
+  startId?: string
+  /** Turn shuffle on, and start with a random track. */
+  shuffle?: boolean
+}
+
 /** Everything `usePlayer` exposes to the UI. */
 export interface PlayerApi {
   engine: AudioEngine
   /** The whole library, in library order. */
   tracks: Track[]
-  /** The tracks of the current view (library or playlist), in play order. */
-  queue: Track[]
+  /** The tracks of the list on screen (the library, a smart list or a playlist), in the order they are shown. */
+  queue: readonly Track[]
+  /**
+   * The tracks next, previous and shuffle move through: the same as `queue`, until a track is started from an album or
+   * artist page (`playFrom`), which keeps playing from that page while the list on screen changes.
+   */
+  playQueue: readonly Track[]
   playlists: Playlist[]
-  /** `'all'` or a playlist id. */
+  /** `'all'`, a smart list or a playlist id: the list on screen. */
   viewId: string
   setViewId: Dispatch<SetStateAction<string>>
+  /** How the library and playlists are ordered; smart lists order themselves. */
+  sort: SortSpec
+  setSort: (spec: SortSpec) => void
   current: Track | null
   currentId: string | null
   playing: boolean
@@ -315,7 +334,13 @@ export interface PlayerApi {
   hydrated: boolean
   /** Progress (0..1) while the current WAV/FLAC file is being decoded in JavaScript, otherwise null. */
   decoding: number | null
+  /** Play a track from the list on screen: next and previous follow that list. */
   play: (id: string) => void
+  /**
+   * Play from a list of tracks that is not a list of its own (an album or artist page): next, previous and shuffle then
+   * stay inside it, whatever list is shown meanwhile. Ids no longer in the library are skipped.
+   */
+  playFrom: (ids: readonly string[], options?: PlayFromOptions) => void
   toggle: () => void
   next: () => void
   prev: () => void
@@ -341,6 +366,8 @@ export interface PlayerApi {
   reorder: (from: number, to: number) => void
   createPlaylist: (name?: string, trackIds?: string[]) => string
   addToPlaylist: (playlistId: string, trackId: string) => void
+  /** Add tracks to a playlist, skipping the ones it already has; resolves with how many were new. */
+  addTracksToPlaylist: (playlistId: string, trackIds: readonly string[]) => number
   deletePlaylist: (id: string) => void
   /** Forget every play count and last-played time (the "most played" lists start over). */
   resetPlays: () => void

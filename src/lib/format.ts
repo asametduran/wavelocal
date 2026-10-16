@@ -18,6 +18,27 @@ export function formatTotal(seconds: number): string {
   return h ? (m ? `${h} h ${m} min` : `${h} h`) : `${m} min`
 }
 
+/** "1 track", "12 tracks": a count with its unit, in the regular English plural. */
+export const countLabel = (n: number, unit: string): string => `${n} ${unit}${n === 1 ? '' : 's'}`
+
+/** The parts that have something to say, joined with a middle dot ("2019 · 12 tracks · 48 min"). */
+export const dotted = (...parts: readonly (string | false | null | undefined)[]): string => parts.filter((part): part is string => typeof part === 'string' && part !== '').join(' · ')
+
+/**
+ * "12 tracks · 48 min": how many tracks and how long they play together. A "+" follows the length when some tracks have
+ * no length yet (a library still being brought up to date), and the length is left out when none has.
+ */
+export function listSummary(items: readonly { duration: number }[]): string {
+  let seconds = 0
+  let unknown = false
+  for (const { duration } of items) {
+    if (duration) seconds += duration
+    else unknown = true
+  }
+  const total = formatTotal(seconds)
+  return dotted(countLabel(items.length, 'track'), total && `${total}${unknown ? '+' : ''}`)
+}
+
 // ---- audio format ----
 
 const CODEC_LABELS: Record<string, string> = { mp1: 'MP1', mp2: 'MP2', mp3: 'MP3', aac: 'AAC', alac: 'ALAC', vorbis: 'Vorbis', opus: 'Opus', flac: 'FLAC' }

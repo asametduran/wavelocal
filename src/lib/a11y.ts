@@ -82,11 +82,16 @@ export function moveAnnouncement(title: string, position: number, total: number)
   return `${title} moved to position ${position} of ${total}`
 }
 
-/** Result count for a filtered list ("3 tracks match"); empty when no search is active. */
-export function matchAnnouncement(count: number, query: string): string {
+/** Result count for a filtered list ("3 tracks match"); empty when no search is active. `noun` is what the list holds. */
+export function matchAnnouncement(count: number, query: string, noun = 'track'): string {
   if (!query.trim()) return ''
-  if (count === 0) return 'No tracks match your search'
-  return count === 1 ? '1 track matches' : `${count} tracks match`
+  if (count === 0) return `No ${noun}s match your search`
+  return count === 1 ? `1 ${noun} matches` : `${count} ${noun}s match`
+}
+
+/** What to say after the sort changed: how the list is sorted now, or that it is back in the order it is stored in. */
+export function sortAnnouncement(described: string, stored: boolean): string {
+  return stored ? `Back to ${described.toLowerCase()}` : `Sorted by ${described}`
 }
 
 /**

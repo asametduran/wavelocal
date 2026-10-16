@@ -8,7 +8,10 @@ import { analyzeOnDemand } from '../lib/analyzeOnDemand'
 import { needsUpgrade, upgradeLibrary, upgradePatch } from '../lib/upgrade'
 import type { UpgradePatch } from '../lib/upgrade'
 import { announce } from '../lib/a11y'
-import { moveItem, nextRepeat, pickTrack, resolveQueue } from '../lib/queue'
+import { contextQueue, mergeTrackIds, moveItem, nextAfterRemoval, nextRepeat, pickTrack } from '../lib/queue'
+import { parseSortSpec } from '../lib/sort'
+import type { SortSpec } from '../lib/sort'
+import { viewTracks } from '../lib/view'
 import { buildBackup, normalizePending, planRestore, resolvePending, serializeBackup } from '../lib/backup'
 import type { Backup, PendingRestore, ResolveResult, RestoreSummary } from '../lib/backup'
 import { PlayTally } from '../lib/plays'
@@ -21,7 +24,7 @@ import { mergeSpatial, normalizeSpatial } from '../lib/spatial'
 import { addBand, bandsFromSettings, deletePreset, findPreset, graphicBands, normalizePresets, normalizeTrackEq, removeBand, savePreset, updateBand } from '../lib/eq'
 import { mergeReverb, normalizeReverb } from '../lib/reverb'
 import { mergeDynamics, mergeStereo, mergeTone, normalizeDynamics, normalizeStereo, normalizeTone } from '../lib/dynamics'
-import type { DynamicsPatch, DynamicsSettings, EqBand, EqPreset, ImportProgress, Lyrics, PlayerApi, Playlist, RepeatMode, ReverbSettings, Settings, SpatialSettings, StereoSettings, TagEditOutcome, ToneSettings, Track, TransitionMode, UpgradeProgress } from '../types'
+import type { DynamicsPatch, DynamicsSettings, EqBand, EqPreset, ImportProgress, Lyrics, PlayFromOptions, PlayerApi, Playlist, RepeatMode, ReverbSettings, Settings, SpatialSettings, StereoSettings, TagEditOutcome, ToneSettings, Track, TransitionMode, UpgradeProgress } from '../types'
 
 const clamp = (v: number, a: number, b: number): number => Math.min(b, Math.max(a, v))
 const XFADE_SECS = 5
@@ -38,9 +41,13 @@ type PitchAudio = HTMLAudioElement & { mozPreservesPitch?: boolean; webkitPreser
 /** Latest render's state, readable from stable callbacks and media-element listeners without stale closures. */
 interface Snapshot {
   tracks: Track[]
-  queue: Track[]
+  /** The list on screen, in the order it is shown. */
+  queue: readonly Track[]
+  /** What next/previous/shuffle move through (see `playFrom`). */
+  playQueue: readonly Track[]
   playlists: Playlist[]
   viewId: string
+  sort: SortSpec
   currentId: string | null
   repeat: RepeatMode
   shuffle: boolean
@@ -75,6 +82,9 @@ export function usePlayer(): PlayerApi {
   const [tracks, setTracks] = useState<Track[]>([]) // the whole library
   const [playlists, setPlaylists] = useState<Playlist[]>([])
   const [viewId, setViewId] = useState('all')
+  const [sort, setSortState] = useState<SortSpec>(() => parseSortSpec(saved.sort))
+  /** Ids of the album or artist page a track was last started from; null while playback follows the list on screen. */
+  const [context, setContext] = useState<readonly string[] | null>(null)
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
   const [time, setTime] = useState(0)
@@ -137,8 +147,10 @@ export function usePlayer(): PlayerApi {
   const state = useRef<Snapshot>({
     tracks: [],
     queue: [],
+    playQueue: [],
     playlists: [],
     viewId: 'all',
+    sort,
     currentId: null,
     repeat,
     shuffle,
@@ -153,16 +165,19 @@ export function usePlayer(): PlayerApi {
     const list = smartList(viewId)
     return list ? smartTracks(list.kind, tracks).map((t) => t.id) : null
   }, [viewId, tracks.length]) // eslint-disable-line react-hooks/exhaustive-deps
-  const queue = useMemo(() => {
-    if (!smartIds) return resolveQueue(tracks, playlists, viewId)
-    const byId = new Map(tracks.map((t) => [t.id, t]))
-    return smartIds.flatMap((id) => {
-      const t = byId.get(id)
-      return t ? [t] : []
-    })
-  }, [tracks, playlists, viewId, smartIds])
+  const queue = useMemo<readonly Track[]>(() => {
+    if (!smartIds) return viewTracks(tracks, playlists, viewId, sort)
+    return contextQueue(tracks, smartIds)
+  }, [tracks, playlists, viewId, smartIds, sort])
+  // Browsing does not change what plays next: a track started from an album or artist page keeps playing from that page,
+  // and the list on screen can change meanwhile. A page with no tracks left in the library falls back to the list.
+  const playQueue = useMemo<readonly Track[]>(() => {
+    if (!context) return queue
+    const list = contextQueue(tracks, context)
+    return list.length ? list : queue
+  }, [context, tracks, queue])
 
-  state.current = { ...state.current, tracks, queue, playlists, viewId, currentId: state.current.currentId ?? currentId, repeat, shuffle, transition, normalize, hydrated }
+  state.current = { ...state.current, tracks, queue, playQueue, playlists, viewId, sort, currentId: state.current.currentId ?? currentId, repeat, shuffle, transition, normalize, hydrated }
   const current = useMemo(() => tracks.find((t) => t.id === currentId) || null, [tracks, currentId])
 
   const getEl = useCallback(() => engine.decks[active.current].el, [engine])
@@ -270,7 +285,7 @@ export function usePlayer(): PlayerApi {
   )
 
   const pickNext = useCallback((dir: 1 | -1, auto: boolean): Track | null => {
-    const { queue: list, currentId, repeat: rep, shuffle: shuf } = state.current
+    const { playQueue: list, currentId, repeat: rep, shuffle: shuf } = state.current
     const picked = pickTrack({ queue: list, currentId, repeat: rep, shuffle: shuf, history: history.current, dir, auto })
     history.current = [...picked.history]
     return picked.track
@@ -283,7 +298,7 @@ export function usePlayer(): PlayerApi {
       if (x.active) return
       const s = state.current
       const pend = x.pending
-      const nextT = (pend && s.queue.find((t) => t.id === pend.id)) || pickNext(1, true)
+      const nextT = (pend && s.playQueue.find((t) => t.id === pend.id)) || pickNext(1, true)
       if (!nextT) return
       const cur = active.current
       const nxt = otherDeck(cur)
@@ -344,7 +359,7 @@ export function usePlayer(): PlayerApi {
   )
 
   skipUnplayable.current = () => {
-    if (++failStreak.current > Math.max(1, state.current.queue.length)) {
+    if (++failStreak.current > Math.max(1, state.current.playQueue.length)) {
       failStreak.current = 0
       notify('None of the next tracks could be played')
       return
@@ -366,6 +381,9 @@ export function usePlayer(): PlayerApi {
     (id: string) => {
       const t = state.current.tracks.find((x) => x.id === id)
       if (!t) return
+      // started from the list on screen: playback follows that list again, not an album page it was last started from
+      setContext(null)
+      state.current.playQueue = state.current.queue
       if (id === state.current.currentId) {
         startPlay(getEl())
         return
@@ -376,9 +394,30 @@ export function usePlayer(): PlayerApi {
     [getEl, load, startPlay],
   )
 
+  const playFrom = useCallback(
+    (ids: readonly string[], { startId, shuffle: shuffled = false }: PlayFromOptions = {}) => {
+      const list = contextQueue(state.current.tracks, ids)
+      // a start that is not on the page is ignored; with none given, a shuffle starts anywhere and a plain play at the top
+      const start = (startId ? list.find((t) => t.id === startId) : undefined) ?? (shuffled ? list[Math.floor(Math.random() * list.length)] : list[0])
+      if (!start) return
+      if (shuffled) setShuffle(true)
+      setContext(list.map((t) => t.id))
+      state.current.playQueue = list // usable at once: the next render would be too late for a track that fails to start
+      if (start.id === state.current.currentId) {
+        const el = getEl()
+        if (!startId) el.currentTime = 0 // "Play" on a page whose first track is already playing starts it over
+        startPlay(el)
+        return
+      }
+      if (state.current.currentId) history.current.push(state.current.currentId)
+      load(start)
+    },
+    [getEl, load, startPlay],
+  )
+
   const toggle = useCallback(() => {
     if (!state.current.currentId) {
-      const first = state.current.queue[0]
+      const first = state.current.playQueue[0]
       if (first) load(first)
       return
     }
@@ -648,7 +687,8 @@ export function usePlayer(): PlayerApi {
       if (!t) return
       if (id === s.currentId) {
         const el = getEl()
-        const n = list.length > 1 ? (list[(list.indexOf(t) + 1) % list.length] ?? null) : null
+        // move on to what would have played next, in the order playback is following (the library order as a last resort)
+        const n = nextAfterRemoval(s.playQueue, id) ?? nextAfterRemoval(list, id)
         if (n) load(n, !el.paused)
         else {
           cancelTransition()
@@ -687,6 +727,7 @@ export function usePlayer(): PlayerApi {
     state.current.tracks.forEach(revokeTrack)
     history.current = []
     state.current.currentId = null
+    setContext(null)
     setTracks([])
     setPlaylists((l) => l.map((p) => ({ ...p, trackIds: [] })))
     setCurrentId(null)
@@ -698,6 +739,8 @@ export function usePlayer(): PlayerApi {
   }, [cancelTransition, engine, resolver])
 
   const reorder = useCallback((from: number, to: number) => {
+    // positions are in the list as shown: in any sort but the stored order they are not positions in what is stored
+    if (state.current.sort.key !== 'library') return
     const vid = state.current.viewId
     if (vid === 'all') setTracks((l) => moveItem(l, from, to))
     else setPlaylists((l) => l.map((p) => (p.id === vid ? { ...p, trackIds: moveItem(p.trackIds, from, to) } : p)))
@@ -712,9 +755,22 @@ export function usePlayer(): PlayerApi {
   const addToPlaylist = useCallback((plId: string, trackId: string) => {
     setPlaylists((l) => l.map((p) => (p.id === plId && !p.trackIds.includes(trackId) ? { ...p, trackIds: [...p.trackIds, trackId] } : p)))
   }, [])
+  const addTracksToPlaylist = useCallback((plId: string, trackIds: readonly string[]): number => {
+    const pl = state.current.playlists.find((p) => p.id === plId)
+    if (!pl) return 0
+    const { added } = mergeTrackIds(pl.trackIds, trackIds)
+    if (added) setPlaylists((l) => l.map((p) => (p.id === plId ? { ...p, trackIds: [...mergeTrackIds(p.trackIds, trackIds).ids] } : p)))
+    return added
+  }, [])
   const deletePlaylist = useCallback((id: string) => {
     setPlaylists((l) => l.filter((p) => p.id !== id))
     setViewId((v) => (v === id ? 'all' : v))
+  }, [])
+
+  // ---- sort ----
+  const setSort = useCallback((spec: SortSpec) => {
+    const next = parseSortSpec(spec)
+    setSortState((s) => (s.key === next.key && s.dir === next.dir ? s : next))
   }, [])
 
   // ---- equalizer ----
@@ -967,18 +1023,18 @@ export function usePlayer(): PlayerApi {
     }
   }, [playing, saveResume])
   useEffect(() => {
-    const settings: Settings = { volume, muted, repeat, shuffle, transition, eqBands: globalBands, eqPresets, eqOn, speed, preservePitch, normalize, spatial, reverb, dynamics, stereo, tone }
+    const settings: Settings = { volume, muted, repeat, shuffle, transition, eqBands: globalBands, eqPresets, eqOn, speed, preservePitch, normalize, spatial, reverb, dynamics, stereo, tone, sort }
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
     } catch {
       /* ignore */
     }
-  }, [volume, muted, repeat, shuffle, transition, globalBands, eqPresets, eqOn, speed, preservePitch, normalize, spatial, reverb, dynamics, stereo, tone])
+  }, [volume, muted, repeat, shuffle, transition, globalBands, eqPresets, eqOn, speed, preservePitch, normalize, spatial, reverb, dynamics, stereo, tone, sort])
 
   // a changed queue invalidates any preloaded "next" pick
   useEffect(() => {
     if (!xfade.current.active) xfade.current.pending = null
-  }, [queue, shuffle, repeat])
+  }, [playQueue, shuffle, repeat])
 
   // ---- audio element events (both decks; only the active one drives the UI) ----
   useEffect(() => {
@@ -1247,12 +1303,12 @@ export function usePlayer(): PlayerApi {
   }, [getEl, currentId, playing, duration, current?.title, current?.artist, current?.album, current?.cover])
 
   return {
-    engine, tracks, queue, playlists, viewId, setViewId, current, currentId, playing, time, duration, volume, muted,
+    engine, tracks, queue, playQueue, playlists, viewId, setViewId, sort, setSort, current, currentId, playing, time, duration, volume, muted,
     repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, normalize, setNormalize, eq, eqOn, setEqOn, setEqBand, applyPreset, eqBands, updateEqBand, addEqBand, removeEqBand, resetEq, eqRemembered, setEqRemembered, eqPresets, saveEqPreset, loadEqPreset, deleteEqPreset, spatial, setSpatial, reverb, setReverb, dynamics, setDynamics, stereo, setStereo, tone, setTone, sleepLeft, setSleep,
     loading, importProgress, cancelImport, upgradeProgress, notice, hydrated, decoding,
-    play, toggle, next: () => next(false), prev, seek, position: () => getEl().currentTime, seekBy, setVolume, volumeBy, toggleMute,
+    play, playFrom, toggle, next: () => next(false), prev, seek, position: () => getEl().currentTime, seekBy, setVolume, volumeBy, toggleMute,
     cycleRepeat, toggleShuffle, addFiles, attachLrc, editTags, remove, clear, reorder,
-    createPlaylist, addToPlaylist, deletePlaylist, resetPlays,
+    createPlaylist, addToPlaylist, addTracksToPlaylist, deletePlaylist, resetPlays,
     exportBackup, previewBackup, applyBackup, pendingRestoreCount: pendingRestore?.tracks.length ?? 0, discardPendingRestore,
   }
 }

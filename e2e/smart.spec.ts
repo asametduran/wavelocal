@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import { PlayerPage, tone } from './helpers'
+import type { Upload } from './helpers'
 
 /** A two-second tone: it counts as played after one second of listening, so the tests stay fast. */
 const song = (name: string, frequency = 440) => tone(name, 2, frequency)
@@ -15,6 +16,11 @@ test.describe('smart playlists', () => {
 
   const option = (label: RegExp) => app.viewSelect.locator('option', { hasText: label })
   const open = (value: string) => app.viewSelect.selectOption(value)
+  /** Import and wait until every file is in the library: the first batch of an import switches the view to the library, which would undo a list chosen too early. */
+  const add = async (...files: Upload[]) => {
+    await app.importFiles(...files)
+    await expect(app.viewSelect.locator('option[value="all"]')).toHaveText(`Library (${files.length})`)
+  }
 
   test('are offered next to the library with live counts', async () => {
     await expect(option(/^Recently added \(0\)/)).toHaveCount(1)
@@ -22,14 +28,14 @@ test.describe('smart playlists', () => {
     await expect(option(/^Recently played \(0\)/)).toHaveCount(1)
     await expect(option(/^Never played \(0\)/)).toHaveCount(1)
 
-    await app.importFiles(song('a'), song('b', 523), song('c', 660))
+    await add(song('a'), song('b', 523), song('c', 660))
     await expect(option(/^Recently added \(3\)/)).toHaveCount(1)
     await expect(option(/^Most played \(0\)/)).toHaveCount(1)
     await expect(option(/^Never played \(3\)/)).toHaveCount(1)
   })
 
   test('recently added puts the newest first and says when', async () => {
-    await app.importFiles(song('a'), song('b', 523))
+    await add(song('a'), song('b', 523))
     await open('smart:recent')
     await expect(app.rows).toHaveCount(2)
     expect(await app.titles()).toEqual(['b', 'a'])
@@ -38,7 +44,7 @@ test.describe('smart playlists', () => {
   })
 
   test('a track counts as played after it has really been listened to', async () => {
-    await app.importFiles(song('a'), song('b', 523))
+    await add(song('a'), song('b', 523))
     await app.play('a')
     await expect(option(/^Most played \(1\)/)).toHaveCount(1, { timeout: 10_000 })
     await expect(option(/^Recently played \(1\)/)).toHaveCount(1)
@@ -56,7 +62,7 @@ test.describe('smart playlists', () => {
   })
 
   test('skipping through tracks, or seeking to the end, does not count', async () => {
-    await app.importFiles(song('solo'))
+    await add(song('solo'))
     await app.play('solo')
     await app.seekTo(1.9)
     // let it finish: it was only heard for a moment
@@ -67,7 +73,7 @@ test.describe('smart playlists', () => {
   })
 
   test('play counts and dates survive a reload', async () => {
-    await app.importFiles(song('a'), song('b', 523))
+    await add(song('a'), song('b', 523))
     await app.play('a')
     await expect(option(/^Most played \(1\)/)).toHaveCount(1, { timeout: 10_000 })
     await app.page.waitForTimeout(300) // the count is written to IndexedDB right after it is counted
@@ -79,7 +85,7 @@ test.describe('smart playlists', () => {
   })
 
   test('smart lists are read-only: nothing to drag, nothing to take out', async () => {
-    await app.importFiles(song('a'), song('b', 523))
+    await add(song('a'), song('b', 523))
     await open('smart:recent')
     const row = app.rows.first()
     await expect(row).toHaveAttribute('draggable', 'false')
@@ -89,7 +95,7 @@ test.describe('smart playlists', () => {
   })
 
   test('playing from a smart list stays inside it', async () => {
-    await app.importFiles(song('a'), song('b', 523), song('c', 660))
+    await add(song('a'), song('b', 523), song('c', 660))
     await open('smart:never')
     await app.play('a')
     await app.key('n')
@@ -99,7 +105,7 @@ test.describe('smart playlists', () => {
   })
 
   test('the list does not reshuffle under you while a count is recorded', async () => {
-    await app.importFiles(song('a'), song('b', 523))
+    await add(song('a'), song('b', 523))
     await open('smart:never')
     await app.play('b')
     await expect(option(/^Most played \(1\)/)).toHaveCount(1, { timeout: 10_000 })
@@ -111,7 +117,7 @@ test.describe('smart playlists', () => {
   })
 
   test('clearing play counts starts the lists over without touching the music', async () => {
-    await app.importFiles(song('a'), song('b', 523))
+    await add(song('a'), song('b', 523))
     await app.play('a')
     await expect(option(/^Most played \(1\)/)).toHaveCount(1, { timeout: 10_000 })
     await open('smart:top')
@@ -124,7 +130,9 @@ test.describe('smart playlists', () => {
   })
 
   test('an empty smart list explains itself', async () => {
-    await app.importFiles(song('a'))
+    await add(song('a'))
+    // the first batch of an import switches the view to the library: let it land before choosing another list
+    await expect(app.rows).toHaveCount(1)
     await open('smart:top')
     await expect(app.sidebar.getByText(/Nothing played yet/)).toBeVisible()
     await open('smart:never')
@@ -132,7 +140,23 @@ test.describe('smart playlists', () => {
   })
 
   test('a library saved before play counts existed keeps working', async () => {
-    await app.importFiles(song('old1'), song('old2', 523))
+    await add(song('old1'), song('old2', 523))
+    // the records are written to IndexedDB just after the tracks appear: rewrite them only once they are there
+    await expect
+      .poll(() =>
+        app.page.evaluate(
+          () =>
+            new Promise<number>((resolve, reject) => {
+              const open = indexedDB.open('wavelocal', 1)
+              open.onsuccess = () => {
+                const count = open.result.transaction('tracks').objectStore('tracks').count()
+                count.onsuccess = () => resolve(count.result)
+              }
+              open.onerror = () => reject(open.error)
+            }),
+        ),
+      )
+      .toBe(2)
     // rewrite the stored records without the new fields, as an older version of the app saved them
     await app.page.evaluate(
       () =>
@@ -164,7 +188,7 @@ test.describe('smart playlists', () => {
   })
 
   test('has no accessibility violations in a smart list', async () => {
-    await app.importFiles(song('a'), song('b', 523))
+    await add(song('a'), song('b', 523))
     await app.play('a')
     await expect(option(/^Most played \(1\)/)).toHaveCount(1, { timeout: 10_000 })
     for (const view of ['smart:top', 'smart:never', 'smart:recent', 'smart:played']) {

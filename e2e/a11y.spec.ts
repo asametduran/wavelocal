@@ -50,7 +50,7 @@ test.describe('automated audit (axe-core, WCAG 2.2 AA + best practices)', () => 
 
   test('folder view', async ({ page }) => {
     await app.importFiles(wav('tone-440', 'a.wav'), wav('tone-880', 'b.wav'))
-    await app.sidebar.getByRole('button', { name: 'Folder view' }).click()
+    await app.showMode('Folders')
     await expect(app.sidebar.getByRole('tree', { name: 'Library folders' })).toBeVisible()
     await expectNoViolations(page, 'folder view')
   })

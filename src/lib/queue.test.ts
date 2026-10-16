@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { moveItem, nextRepeat, pickTrack, resolveQueue } from './queue'
+import { contextQueue, mergeTrackIds, moveItem, nextAfterRemoval, nextRepeat, pickTrack, resolveQueue } from './queue'
 import type { PickInput } from './queue'
 import type { Playlist, Track } from '../types'
 import { EMPTY_META } from './trackmeta'
@@ -59,6 +59,12 @@ describe('pickTrack: sequential', () => {
 
   it('starts from the first track when nothing is current', () => {
     expect(pick({ currentId: null }).track?.id).toBe('a')
+  })
+
+  it('starts at either end when the current track is not in the queue (another album was opened)', () => {
+    expect(pick({ currentId: 'elsewhere' }).track?.id).toBe('a')
+    expect(pick({ currentId: 'elsewhere', dir: -1 }).track?.id).toBe('c')
+    expect(pick({ currentId: null, dir: -1 }).track?.id).toBe('c')
   })
 
   it('does not touch history when not shuffling', () => {
@@ -158,6 +164,69 @@ describe('resolveQueue', () => {
 
   it('falls back to the library for an unknown view', () => {
     expect(resolveQueue(abc, playlists, 'nope')).toBe(abc)
+  })
+})
+
+describe('contextQueue', () => {
+  const library = ['a', 'b', 'c', 'd'].map(track)
+  const ids = (list: readonly Track[]) => list.map((t) => t.id)
+
+  it('is the tracks of the given ids, in the order of the ids', () => {
+    expect(ids(contextQueue(library, ['c', 'a', 'd']))).toEqual(['c', 'a', 'd'])
+  })
+
+  it('leaves out ids that are not in the library any more', () => {
+    expect(ids(contextQueue(library, ['a', 'gone', 'b']))).toEqual(['a', 'b'])
+    expect(contextQueue(library, ['gone'])).toEqual([])
+    expect(contextQueue(library, [])).toEqual([])
+  })
+
+  it('lists a track once, however often it is named', () => {
+    expect(ids(contextQueue(library, ['b', 'b', 'a', 'b']))).toEqual(['b', 'a'])
+  })
+
+  it('hands back the library\'s own track objects, not copies', () => {
+    expect(contextQueue(library, ['b'])[0]).toBe(library[1])
+  })
+})
+
+describe('mergeTrackIds', () => {
+  it('appends the ids a list does not have yet, keeping their order', () => {
+    expect(mergeTrackIds(['a', 'b'], ['c', 'a', 'd'])).toEqual({ ids: ['a', 'b', 'c', 'd'], added: 2 })
+  })
+
+  it('adds nothing, and hands back the very same list, when everything is there already', () => {
+    const current = ['a', 'b']
+    const merged = mergeTrackIds(current, ['b', 'a'])
+    expect(merged.added).toBe(0)
+    expect(merged.ids).toBe(current)
+    expect(mergeTrackIds(current, []).ids).toBe(current)
+  })
+
+  it('names an id once however often it is given', () => {
+    expect(mergeTrackIds([], ['x', 'x', 'y', 'x'])).toEqual({ ids: ['x', 'y'], added: 2 })
+  })
+
+  it('does not change the list it is given', () => {
+    const current = Object.freeze(['a'])
+    expect(mergeTrackIds(current, ['b']).ids).toEqual(['a', 'b'])
+    expect(current).toEqual(['a'])
+  })
+})
+
+describe('nextAfterRemoval', () => {
+  const order = ['a', 'b', 'c'].map(track)
+
+  it('is the track that followed the removed one, wrapping round at the end', () => {
+    expect(nextAfterRemoval(order, 'a')?.id).toBe('b')
+    expect(nextAfterRemoval(order, 'b')?.id).toBe('c')
+    expect(nextAfterRemoval(order, 'c')?.id).toBe('a')
+  })
+
+  it('is nothing when the removed track was the only one, or is not in the order at all', () => {
+    expect(nextAfterRemoval([track('a')], 'a')).toBeNull()
+    expect(nextAfterRemoval(order, 'elsewhere')).toBeNull()
+    expect(nextAfterRemoval([], 'a')).toBeNull()
   })
 })
 

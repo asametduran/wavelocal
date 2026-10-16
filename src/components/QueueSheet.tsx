@@ -3,7 +3,11 @@ import { X } from 'lucide-react'
 import Playlist from './Playlist'
 import { useSwipe } from '../hooks/useSwipe'
 import { useDialog } from '../hooks/useA11y'
+import type { BrowseMode } from '../lib/browse'
 import type { PlayerApi } from '../types'
+
+/** The queue is a list of what plays: tracks or folders, not the album and artist pages of the main library panel. */
+const QUEUE_MODES: readonly BrowseMode[] = ['list', 'folders']
 
 /** Phone bottom-sheet queue. Drag the handle down (or tap the backdrop) to dismiss. */
 interface QueueSheetProps {
@@ -47,7 +51,7 @@ export default function QueueSheet({ p, open, onClose, onPickFiles, onPickFolder
             <X size={20} />
           </button>
         </div>
-        <Playlist p={p} label="Queue" onPickFiles={onPickFiles} onPickFolder={onPickFolder} className="min-h-0 flex-1 !border-0" />
+        <Playlist p={p} label="Queue" modes={QUEUE_MODES} onPickFiles={onPickFiles} onPickFolder={onPickFolder} className="min-h-0 flex-1 !border-0" />
       </div>
     </div>
   )

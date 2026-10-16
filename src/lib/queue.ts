@@ -34,7 +34,8 @@ export function pickTrack({ queue, currentId, repeat, shuffle, history, dir, aut
       const prevId = history[history.length - 1]
       return { track: queue.find((t) => t.id === prevId) ?? queue[0] ?? null, history: history.slice(0, -1) }
     }
-    return { track: queue[(idx - 1 + queue.length) % queue.length] ?? null, history }
+    // a current track that is not in this view (another album was opened while it plays): previous starts from the end
+    return { track: queue[idx < 0 ? queue.length - 1 : (idx - 1 + queue.length) % queue.length] ?? null, history }
   }
 
   if (shuffle && queue.length > 1) {
@@ -56,6 +57,41 @@ export function resolveQueue(tracks: Track[], playlists: readonly Playlist[], vi
     const t = byId.get(id)
     return t ? [t] : []
   })
+}
+
+/** The tracks of `ids`, in that order and each once; ids that are no longer in the library are skipped. */
+export function contextQueue(tracks: readonly Track[], ids: readonly string[]): Track[] {
+  const byId = new Map(tracks.map((t) => [t.id, t]))
+  const seen = new Set<string>()
+  const out: Track[] = []
+  for (const id of ids) {
+    const t = byId.get(id)
+    if (t && !seen.has(id)) {
+      seen.add(id)
+      out.push(t)
+    }
+  }
+  return out
+}
+
+/** `current` with the ids it does not have yet appended (each once, in order), and how many that was. Unchanged: the same array. */
+export function mergeTrackIds(current: readonly string[], additions: readonly string[]): { ids: readonly string[]; added: number } {
+  const have = new Set(current)
+  const fresh: string[] = []
+  for (const id of additions) {
+    if (!have.has(id)) {
+      have.add(id)
+      fresh.push(id)
+    }
+  }
+  return fresh.length ? { ids: [...current, ...fresh], added: fresh.length } : { ids: current, added: 0 }
+}
+
+/** The track to move on to when the playing one is removed: the one after it in `order`, wrapping round; null if there is none. */
+export function nextAfterRemoval(order: readonly Track[], id: string): Track | null {
+  const at = order.findIndex((t) => t.id === id)
+  if (at < 0 || order.length < 2) return null
+  return order[(at + 1) % order.length] ?? null
 }
 
 /** Move one item to a new index, returning a new array (or the same array for no-op / out-of-range moves). */

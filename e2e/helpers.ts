@@ -1,6 +1,9 @@
 import { expect } from '@playwright/test'
 import type { Dialog, Locator, Page } from '@playwright/test'
 import { buildFixture, buildFlac, lrcText } from '../src/test-utils/fixtures'
+import { buildMp3 } from '../src/test-utils/containers'
+import { buildId3v2, withId3 } from '../src/test-utils/id3'
+import type { Id3Fields } from '../src/test-utils/id3'
 import { sine } from '../src/test-utils/signals'
 import { encodeWav } from '../src/test-utils/wav'
 import type { FixtureName } from '../src/test-utils/fixtures'
@@ -56,6 +59,16 @@ export async function importWithMtime(app: { page: Page }, files: readonly Uploa
 
 /** The library key the app gives an uploaded file (see `fileKey` in src/lib/metadata.ts). */
 export const libraryKey = (file: Upload, lastModified: number): string => `${file.name}|${file.buffer.length}|${lastModified}`
+
+/**
+ * A short MP3 with an ID3 tag: how tests give a library artists, albums, track numbers and years. `frames` of 1152
+ * samples each at 44.1 kHz make it about 26 ms per frame, so the default plays for roughly a second and a half.
+ */
+export const song = (name: string, tags: Id3Fields, frames = 60): Upload => ({
+  name,
+  mimeType: 'audio/mpeg',
+  buffer: Buffer.from(withId3(buildId3v2(tags), buildMp3({ frames }))),
+})
 
 /** A very short tone, for tests that need many cheap tracks. */
 export const tone = (name: string, seconds = 0.1, frequency = 440): Upload => ({
@@ -330,6 +343,17 @@ export class PlayerPage {
 
   get viewSelect(): Locator {
     return this.sidebar.getByLabel('Library or playlist')
+  }
+
+  /** One of the tabs that switch the library panel between tracks, albums, artists and folders. */
+  tab(name: 'Tracks' | 'Albums' | 'Artists' | 'Folders'): Locator {
+    return this.sidebar.getByRole('tab', { name, exact: true })
+  }
+
+  /** Switch the library panel to a tab and wait until it has taken effect. */
+  async showMode(name: 'Tracks' | 'Albums' | 'Artists' | 'Folders'): Promise<void> {
+    await this.tab(name).click()
+    await expect(this.tab(name)).toHaveAttribute('aria-selected', 'true')
   }
 
   get search(): Locator {

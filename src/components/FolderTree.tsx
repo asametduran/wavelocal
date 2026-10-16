@@ -5,6 +5,8 @@ import Cover from './Cover'
 import { formatTime } from '../lib/format'
 import { ancestorsOf, buildTree, collectTrackIds, defaultOpen, flattenTree, pruneOpen } from '../lib/folders'
 import type { FolderNode, FolderRow } from '../lib/folders'
+import { filterByQuery } from '../lib/search'
+import type { Query } from '../lib/search'
 import type { PlayerApi } from '../types'
 
 const ROW_H = 44
@@ -45,22 +47,19 @@ const actionBtn =
 
 interface FolderTreeProps {
   p: PlayerApi
-  /** The library search text; while it is non-empty only matching tracks are shown, with their folders opened. */
-  query: string
+  /** The library search; while it is not empty only matching tracks are shown, with their folders opened. */
+  query: Query
   onEdit: (trackId: string) => void
 }
 
 export default function FolderTree({ p, query, onEdit }: FolderTreeProps) {
-  const q = query.trim().toLowerCase()
+  const searching = !query.empty
   const trackById = useMemo(() => new Map(p.queue.map((t) => [t.id, t])), [p.queue])
-  const root = useMemo(() => {
-    const shown = q ? p.queue.filter((t) => `${t.title} ${t.artist} ${t.album} ${t.path}`.toLowerCase().includes(q)) : p.queue
-    return buildTree(shown)
-  }, [p.queue, q])
+  const root = useMemo(() => buildTree(filterByQuery(p.queue, query)), [p.queue, query])
 
   const [stored, setStored] = useState<Set<string> | null>(loadOpen)
   const open = useMemo(() => (stored ? pruneOpen(stored, root) : defaultOpen(root)), [stored, root])
-  const rows = useMemo(() => flattenTree(root, open, q !== ''), [root, open, q])
+  const rows = useMemo(() => flattenTree(root, open, searching), [root, open, searching])
 
   const setOpen = useCallback((next: Set<string>) => {
     setStored(next)
@@ -149,7 +148,7 @@ export default function FolderTree({ p, query, onEdit }: FolderTreeProps) {
         else if (rows[active + 1] && (rows[active + 1] as FolderRow).depth > row.depth) focusRow(active + 1)
         break
       case 'ArrowLeft':
-        if (row.kind === 'folder' && row.open && q === '') toggle(row.node.path, false)
+        if (row.kind === 'folder' && row.open && !searching) toggle(row.node.path, false)
         else if (parentIndex(active) >= 0) focusRow(parentIndex(active))
         else return
         break
@@ -165,7 +164,7 @@ export default function FolderTree({ p, query, onEdit }: FolderTreeProps) {
   const showPlaying = () => {
     if (!current) return
     setReveal(current.id)
-    if (q === '') setOpen(new Set([...open, ...ancestorsOf(`${current.path}/x`)]))
+    if (!searching) setOpen(new Set([...open, ...ancestorsOf(`${current.path}/x`)]))
   }
   useLayoutEffect(() => {
     if (!reveal) return
@@ -193,7 +192,7 @@ export default function FolderTree({ p, query, onEdit }: FolderTreeProps) {
           {hasFolders ? ` in ${folderCount} ${folderCount === 1 ? 'folder' : 'folders'}` : ''}
         </span>
         <span className="flex items-center gap-1">
-          {hasFolders && q === '' && (
+          {hasFolders && !searching && (
             <button onClick={() => setOpen(allOpen ? new Set() : allPaths)} className="rounded px-2 py-0.5 hover:bg-white/10 hover:text-white">
               {allOpen ? 'Collapse all' : 'Expand all'}
             </button>

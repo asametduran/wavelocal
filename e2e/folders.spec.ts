@@ -40,7 +40,7 @@ test.describe('folder tree browser', () => {
     cleanup = lib.cleanup
     await page.locator('input[type=file]').nth(1).setInputFiles(lib.dir)
     await expect(app.rows).toHaveCount(6)
-    await app.sidebar.getByRole('button', { name: 'Folder view' }).click()
+    await app.showMode('Folders')
     await expect(app.sidebar.getByRole('tree', { name: 'Library folders' })).toBeVisible()
   })
 
@@ -140,9 +140,9 @@ test.describe('folder tree browser', () => {
 
   test('"Show playing track" opens the folders above it and brings it into view', async () => {
     // start a deep track from the list view, then return to the tree
-    await app.sidebar.getByRole('button', { name: 'Folder view' }).click()
+    await app.showMode('Tracks')
     await app.play('s3')
-    await app.sidebar.getByRole('button', { name: 'Folder view' }).click()
+    await app.showMode('Folders')
     await expect(folder('Music/Rock/Album 1')).toHaveCount(0)
     await app.sidebar.getByRole('button', { name: 'Show playing track' }).click()
     await expect(folder('Music/Rock')).toHaveAttribute('aria-expanded', 'true')
@@ -174,7 +174,7 @@ test.describe('folder tree browser', () => {
   })
 
   test('switching back to the list keeps every track', async () => {
-    await app.sidebar.getByRole('button', { name: 'Folder view' }).click()
+    await app.showMode('Tracks')
     await expect(app.rows).toHaveCount(6)
   })
 

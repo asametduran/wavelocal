@@ -15,14 +15,17 @@ A modern dark-mode music player that runs entirely in your browser. Your files a
 - **Volume** — slider with mute toggle
 - **Modes** — shuffle, repeat all, repeat one
 - **Load music** — drag & drop anywhere on the window (whole folders included), pick files, or pick a whole folder
-- **Folder view** — the tree button in the library header browses by the folder structure you imported: keyboard-navigable (arrows, Home/End), searchable, remembers which folders are open, with *Play folder* and *Save as playlist* per folder
+- **Folders** — the *Folders* tab browses by the folder structure you imported: keyboard-navigable (arrows, Home/End), searchable, remembers which folders are open, with *Play folder* and *Save as playlist* per folder
 - **File details** — importing reads the *headers* of every file in pure TypeScript (nothing is decoded): MP3 (Xing/Info/VBRI frame counts and the LAME encoder delay, or a walk over every frame for a variable-bitrate file that has no header), MP4/M4A (AAC and Apple Lossless; the track's edit list for the playable length, the sample table for the true bitrate), Ogg Vorbis and Opus, FLAC, WAV/RF64 and raw ADTS AAC. Every track therefore has its real length at once (the library header shows the total), the Now Playing screen shows what the file is (`FLAC · 96 kHz · 24-bit`, a Hi-Res mark above CD quality, `MP3 · 193 kbps VBR`), and the tags `jsmediatags` cannot read come through too: Ogg, FLAC and WAV tags and artwork, album artist, track and disc numbers, year, genre (numeric ID3 genres such as `(13)` become names) and the compilation flag. The probes were checked against `ffprobe`, `mutagen` and Chromium on well over a hundred really encoded files, and a seeded fuzz test feeds them damaged ones. Anything no probe understands falls back to asking the browser for the length.
 - **Scalable import** — files are read a few at a time (never thousands at once); tracks appear and are saved in batches of 100 while the rest is still being read; a progress pill counts the files and has a *Cancel* button (what was read stays); imports started together queue up and never add a file twice; a folder imports folder by folder, in natural file order.
 - **Upgrades itself** — a library stored by an earlier version is brought up to date quietly in the background, from the audio copies it already holds (lengths, track numbers, formats, genres...): a few files at a time, the progress kept in the records so a restart carries on, only unknown fields filled in (a loudness you measured or a value you set is never overwritten), and nothing re-imported or rewritten.
 - **ID3 metadata** — title, artist, album and embedded cover art via `jsmediatags`; sleek procedural gradient artwork when a file has none
 - **Smart playlists** — *Recently added*, *Most played*, *Recently played* and *Never played* sit in the library menu and fill themselves. A track counts as played once you have actually heard half of it or 30 seconds (pausing and seeking do not count, so skipping around cannot inflate it); counts and dates live only in your offline library on this device, can be cleared with one button, and a library from before this existed keeps working. A smart list is ordered when you open it and does not reshuffle under you while you listen.
 - **Backup & restore** — Sound & tools → *Backup & restore* exports your playlists, tags, lyrics, play counts, added dates and per-track EQ curves to one JSON file (no audio, no artwork) and restores from one. Restoring is a merge that shows a preview first and never removes anything: matching tracks (same name, size and modified time as the library key) get their tags, lyrics and counters back (counts only ever go up), playlists are merged by id or name, and anything that refers to files you do not have yet is remembered and fills in automatically as those files are added, even after a restart. The file is untrusted input: size-capped, validated field by field, damaged entries skipped and reported.
-- **Queue** — click to play, drag to reorder, remove tracks, live search by title/artist/album
+- **Search** — forgiving and fast: accents, capitals and the Turkish dotted/dotless i do not matter (`istanbul` finds `İstanbul`, `yarisi` finds `Yarısı`, `beyonce` finds `Beyoncé`), every word has to match in any order, and a few filters narrow it down: `artist:`, `album:`, `title:`, `genre:`, `year:` (`1965`, `1990..1999`, `>=2000`, `1990s`), `folder:` and `file:`, `"exact phrases"` and `-excluded` words. The `?` button next to the box lists them, and its examples add themselves to the search. The same search works in the track list, the albums and artists, and the folder tree.
+- **Sort** — a sort menu above the list: title, artist, album, track number, length, date added, play count and year, ascending or descending (named in words: *A to Z*, *newest first*), remembered. Text sorts the way your language sorts it (accents and case do not matter, "Track 2" comes before "Track 10"), unknown values (no year, no album) always go last, and ties fall back to a natural order (an artist's albums stay together, an album stays in disc and track order). Next and previous follow the sorted order, rows say why they are where they are ("2019", "added 3 days ago"), and dragging is only offered in the stored order.
+- **Albums and artists** — the *Albums* and *Artists* tabs group the list on screen (the library, a playlist or a smart list) by the tags: covers, titles, years and totals in a virtualized grid that stays smooth with thousands of albums; compilations stay together under *Various Artists*, tracks with no album tag gather on one *Unknown album*. An album opens as a page with its tracks in disc and track order (a heading per disc), an artist as a page with their albums oldest first; each has *Play*, *Shuffle* and *Add to playlist* for the whole thing, and a card or row plays without opening. Playing from a page keeps playing from that page while you browse on (the album does not change under you when you look at another one); playing a track from the track list goes back to following that list. Arrow keys, Home/End and PageUp/PageDown move between cards, Back, `Esc` and a phone's Back button close a page, and the panel widens for browsing on tablets and desktops.
+- **Queue** — click to play, drag to reorder (in the stored order), remove tracks, live search
 - **OS integration** — Media Session API (media keys, lock-screen controls)
 - **Responsive** — sidebar on desktop, slide-over queue on mobile
 
@@ -69,14 +72,16 @@ In TV mode arrow keys move focus (D-pad) instead of seeking; use the focused see
 | `M` | Mute |
 | `S` | Shuffle |
 | `R` | Cycle repeat (off → all → one) |
-| `/` | Focus search (`Esc` to leave) |
+| `/` | Focus search (`Esc` clears it, then leaves it) |
 | `Alt+↑` / `Alt+↓` | Move the focused track up / down the queue (the keyboard alternative to dragging) |
+| Arrows, `Home`, `End`, `PageUp`, `PageDown` | Move between the albums or artists (one card is in the Tab order; `Enter` opens it) |
+| `Esc` | Close the top panel, or go back from an album or artist page |
 
 ## Accessibility
 
 Wavelocal targets WCAG 2.2 AA and is checked automatically: `e2e/a11y.spec.ts` runs axe-core (WCAG 2.0 to 2.2 A/AA plus best practices) over the empty library, a playing track, both stage tabs, the folder view, the sound tools, the shortcut list, the tag editor and the phone sheets, and fails on any violation.
 
-- **Screen readers** - landmarks and a skip-link pair (library, player controls), one polite live region that announces track changes, play/pause, search result counts and reorders, spoken slider values ("1 minute 5 seconds of 3 minutes 20 seconds"), labelled tab lists, radio groups and menus, and `aria-posinset`/`aria-setsize` on the virtualized track list.
+- **Screen readers** - landmarks and a skip-link pair (library, player controls), one polite live region that announces track changes, play/pause, search result counts (tracks, albums or artists), sort changes ("Sorted by Title, A to Z") and reorders, an album or artist page that moves focus to its title, spoken slider values ("1 minute 5 seconds of 3 minutes 20 seconds"), labelled tab lists, radio groups and menus, and `aria-posinset`/`aria-setsize` on the virtualized track list.
 - **Keyboard** - every dialog and sheet moves focus in, keeps Tab inside (the sound tools and shortcut list also make the page behind them `inert`) and returns focus to the control that opened it; tabs and radio groups use arrow keys / Home / End with a single tab stop; the add-to-playlist menu is arrow-key operable; reordering works without dragging (`Alt+↑`/`Alt+↓`).
 - **Motion** - follows the system "reduce motion" setting, with a Motion override (follow device / reduce / full) in Sound & tools for WebViews that cannot see it. Reduced motion turns off animations, smooth scrolling and the live visualizer (a still frame is drawn).
 - **Contrast** - secondary text meets 4.5:1 on every surface, and an accent colour that is too dark to read is lightened automatically while the text on filled accent buttons flips between black and white (`src/lib/contrast.ts`). `prefers-contrast: more` and Windows forced-colors mode have dedicated styles.
@@ -130,7 +135,9 @@ src/
 ├── main.tsx              entry point
 ├── App.tsx               layout, window-wide drag & drop, file/folder inputs
 ├── hooks/
-│   ├── usePlayer.ts      queue, playlists, persistence, sleep timer, crossfade, Media Session
+│   ├── usePlayer.ts      queue, sort, "playing from" context, playlists, persistence, sleep timer, crossfade, Media Session
+│   ├── useBrowse.ts      the library panel's mode and open album/artist pages, mirrored in the browser history so Back closes a page
+│   ├── useRemScale.ts    root font size as a scale, so virtualized rows grow with TV mode and large text
 │   ├── useHotkeys.ts     global keyboard / remote shortcuts
 │   ├── useTvMode.ts      10-foot UI + D-pad focus navigation
 │   └── useSwipe.ts       touch gestures
@@ -156,12 +163,22 @@ src/
 │   ├── backup.ts         library backup/restore: export, validation, merge, pending restore
 │   ├── plays.ts          what counts as a play (listening-time tally)
 │   ├── smart.ts          smart playlists (recent / most played / recently played / never played)
+│   ├── search.ts         accent- and Turkish-aware tokenized search, `artist:`/`year:` filters, per-track folded index
+│   ├── sort.ts           locale-aware stable sorting with unknowns last, sort menu keys and their wording
+│   ├── groups.ts         albums and artists from tags (compilations, unknown album), their sorting, search and the shared index
+│   ├── pages.ts          rows and labels of the album and artist pages (disc headings, an album per heading)
+│   ├── browse.ts         browse modes and the trail of open pages (what Back does)
+│   ├── grid.ts           layout maths of the virtualized grid: columns, visible rows, arrow-key targets
+│   ├── view.ts           the tracks a list shows (the library or a playlist, sorted) and why a row is where it is
 │   ├── share/            listen together: pairing codes, wire protocol, clock sync, drift planning, file streaming, WebRTC peer (lazy chunk)
 │   ├── metadata.ts       file helpers (audio/lrc classification, library key), record → track with lazy object URLs
 │   └── format.ts         time and total-length formatting, audio-format badge, procedural fallback artwork
 ├── types.ts              shared domain types (Track, Playlist, Lyrics, PlayerApi, …)
 └── components/
-    ├── Playlist.tsx      queue sidebar, search, drag-to-reorder
+    ├── Playlist.tsx      the library panel: list picker, search, mode tabs, sort, the track list or the other views
+    ├── TrackList.tsx     the virtualized track rows: play, edit, add to playlist, drag/Alt+Arrow reorder, headings
+    ├── Browse.tsx        albums and artists views and their pages (lazy chunk, with GroupPage.tsx and VirtualGrid.tsx)
+    ├── SortMenu.tsx, SearchBox.tsx, ModeTabs.tsx, PlaylistMenu.tsx   the panel's controls
     ├── NowPlaying.tsx    center stage: artwork, title, empty state
     ├── PlayerBar.tsx     persistent transport + seek + volume
     ├── Slider.tsx        styled range input

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { Loader2, Upload } from 'lucide-react'
 import { usePlayer } from './hooks/usePlayer'
+import { useBrowse } from './hooks/useBrowse'
 import { useDesktopTray } from './hooks/useDesktopTray'
 import { useHotkeys } from './hooks/useHotkeys'
 import { useTrackAnnouncements } from './hooks/useA11y'
@@ -26,6 +27,8 @@ const ShortcutsModal = lazyPanel('the shortcut list', loadShortcuts)
 
 export default function App() {
   const p = usePlayer()
+  // the main library panel's browsing (mode, open album and artist pages); Back closes a page, on a phone too
+  const browse = useBrowse({ history: true })
   useDesktopTray(p)
   // the listen-together controller reads the player through this module-level handle (it lives outside React)
   useEffect(() => attachPlayer(p))
@@ -62,8 +65,12 @@ export default function App() {
       setNowOpen(false)
       return true
     }
+    if (browse.page) {
+      browse.back()
+      return true
+    }
     return false
-  }, [helpOpen, toolsOpen, queueOpen, nowOpen])
+  }, [helpOpen, toolsOpen, queueOpen, nowOpen, browse.page, browse.back])
 
   useHotkeys(p, {
     tv,
@@ -160,6 +167,7 @@ export default function App() {
             tv={tv}
             onToggleTv={() => setTv((v) => !v)}
             className="flex-1 md:flex-none"
+            browse={browse}
           />
           <NowPlaying p={p} onPickFiles={pickFiles} onPickFolder={pickFolder} />
         </main>

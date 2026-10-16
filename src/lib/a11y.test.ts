@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { Announcer, DialogStack, matchAnnouncement, moveAnnouncement, rovingTarget, spokenPercent, spokenProgress, spokenTime, tabbables, trackAnnouncement, trapTarget } from './a11y'
+import { Announcer, DialogStack, matchAnnouncement, moveAnnouncement, rovingTarget, sortAnnouncement, spokenPercent, spokenProgress, spokenTime, tabbables, trackAnnouncement, trapTarget } from './a11y'
 
 describe('spokenTime', () => {
   it('speaks hours, minutes and seconds with correct plurals', () => {
@@ -139,6 +139,22 @@ describe('announcements', () => {
     expect(matchAnnouncement(1, 'blue')).toBe('1 track matches')
     expect(matchAnnouncement(12, 'blue')).toBe('12 tracks match')
     expect(matchAnnouncement(12, '   ')).toBe('')
+  })
+
+  it('names what is being searched when it is not tracks', () => {
+    expect(matchAnnouncement(0, 'zzz', 'album')).toBe('No albums match your search')
+    expect(matchAnnouncement(1, 'blue', 'album')).toBe('1 album matches')
+    expect(matchAnnouncement(7, 'blue', 'artist')).toBe('7 artists match')
+    expect(matchAnnouncement(7, '', 'artist')).toBe('')
+  })
+})
+
+describe('sortAnnouncement', () => {
+  it('says what the list is sorted by, or that it is back in its own order', () => {
+    expect(sortAnnouncement('Title, A to Z', false)).toBe('Sorted by Title, A to Z')
+    expect(sortAnnouncement('Date added, newest first', false)).toBe('Sorted by Date added, newest first')
+    expect(sortAnnouncement('Library order', true)).toBe('Back to library order')
+    expect(sortAnnouncement('Playlist order', true)).toBe('Back to playlist order')
   })
 })
 

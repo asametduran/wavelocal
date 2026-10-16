@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fallbackGradient, formatBadge, formatTime, formatTotal, isHiRes, spokenFormat } from './format'
+import { countLabel, dotted, fallbackGradient, formatBadge, formatTime, formatTotal, isHiRes, listSummary, spokenFormat } from './format'
 import type { AudioFormat } from './audio/probe/types'
 
 describe('formatTime', () => {
@@ -111,5 +111,43 @@ describe('fallbackGradient', () => {
 
   it('accepts the default empty seed', () => {
     expect(fallbackGradient()).toBe(fallbackGradient(''))
+  })
+})
+
+describe('countLabel', () => {
+  it('writes a count with its unit, singular only for exactly one', () => {
+    expect(countLabel(0, 'track')).toBe('0 tracks')
+    expect(countLabel(1, 'track')).toBe('1 track')
+    expect(countLabel(2, 'album')).toBe('2 albums')
+    expect(countLabel(1234, 'artist')).toBe('1234 artists')
+  })
+})
+
+describe('dotted', () => {
+  it('joins the parts that have something to say with a middle dot', () => {
+    expect(dotted('2019', '12 tracks', '48 min')).toBe('2019 · 12 tracks · 48 min')
+    expect(dotted('The Beatles', '', '1965')).toBe('The Beatles · 1965')
+    expect(dotted(null, undefined, false, '1 track')).toBe('1 track')
+    expect(dotted()).toBe('')
+    expect(dotted('', null)).toBe('')
+  })
+})
+
+describe('listSummary', () => {
+  const lengths = (...seconds: number[]) => seconds.map((duration) => ({ duration }))
+
+  it('counts the tracks and adds up how long they play', () => {
+    expect(listSummary(lengths(60, 120))).toBe('2 tracks · 3 min')
+    expect(listSummary(lengths(3600, 3600, 3600))).toBe('3 tracks · 3 h')
+    expect(listSummary(lengths(30))).toBe('1 track · < 1 min')
+  })
+
+  it('marks a total that is missing some lengths with a plus, and leaves it out when nothing is known', () => {
+    expect(listSummary(lengths(60, 0))).toBe('2 tracks · 1 min+')
+    expect(listSummary(lengths(0, 0))).toBe('2 tracks')
+  })
+
+  it('says so for an empty list', () => {
+    expect(listSummary([])).toBe('0 tracks')
   })
 })
