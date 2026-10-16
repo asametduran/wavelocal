@@ -3,6 +3,8 @@ import type { Dispatch, SetStateAction } from 'react'
 import type { AudioEngine } from './lib/engine'
 import type { Backup, PendingRestore, RestoreSummary } from './lib/backup'
 import type { TagEdit } from './lib/tags'
+import type { AudioFormat } from './lib/audio/probe/types'
+import type { TagMeta } from './lib/tagfields'
 
 /** One lyric line; `t` is the start time in seconds, or null for unsynced (plain) lyrics. */
 export interface LyricLine {
@@ -15,8 +17,19 @@ export interface Lyrics {
   lines: LyricLine[]
 }
 
+/**
+ * What reading a file's tags and headers adds to its library record: the fields for sorting, grouping and searching
+ * (see `lib/tagfields.ts`), the audio format, and the version of the analysis that produced them (`lib/trackmeta.ts`).
+ */
+export interface TrackMeta extends TagMeta {
+  /** What the container headers say about the audio; null when the file could not be read or is not a known container. */
+  audio: AudioFormat | null
+  /** The `INDEX_VERSION` this record was last analysed with: 0 for a library stored before there was one. */
+  indexed: number
+}
+
 /** Serializable track record as persisted in IndexedDB (`tracks` store). */
-export interface TrackRecord {
+export interface TrackRecord extends TrackMeta {
   id: string
   /** Dedupe key: `name|size|lastModified`. */
   key: string
@@ -205,6 +218,22 @@ export interface DynamicsPatch {
   limiter?: Partial<LimiterSettings>
 }
 
+/** Progress of a file import (`PlayerApi.importProgress`). */
+export interface ImportProgress {
+  /** Audio files to read in this import. */
+  total: number
+  /** Files read so far. */
+  done: number
+  /** Tracks added to the library so far. */
+  added: number
+}
+
+/** Progress of the background library upgrade (`PlayerApi.upgradeProgress`). */
+export interface UpgradeProgress {
+  total: number
+  done: number
+}
+
 /** Result of `PlayerApi.editTags`. */
 export type TagEditOutcome = { ok: true; embedded: boolean } | { ok: false; error: string }
 
@@ -274,7 +303,14 @@ export interface PlayerApi {
   sleepLeft: number | null
   /** Start the sleep timer for `minutes`; 0 or null cancels it. */
   setSleep: (minutes: number | null) => void
+  /** True while files are being imported (kept for callers that only need a spinner). */
   loading: boolean
+  /** The import in progress: audio files read so far out of all, and tracks added; null when none is running. */
+  importProgress: ImportProgress | null
+  /** Stop the import in progress and any queued behind it. What was already read stays in the library. */
+  cancelImport: () => void
+  /** Background analysis of tracks stored before their details (durations, track numbers, format) were read; null when idle. */
+  upgradeProgress: UpgradeProgress | null
   notice: string
   hydrated: boolean
   /** Progress (0..1) while the current WAV/FLAC file is being decoded in JavaScript, otherwise null. */

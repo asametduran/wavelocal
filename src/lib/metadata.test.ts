@@ -13,7 +13,10 @@ vi.mock('jsmediatags/dist/jsmediatags.min.js', () => ({
   },
 }))
 
-import { buildTrack, fileKey, filesToTracks, isAudioFile, isLrcFile, norm, replayGainDb, revokeTrack } from './metadata'
+import { buildTrack, fileKey, isAudioFile, isLrcFile, norm, revokeTrack } from './metadata'
+import { replayGainDb } from './analyze'
+import { filesToTracks } from './importer'
+import { EMPTY_META } from './trackmeta'
 
 const audio = (name: string, type = 'audio/mpeg', lastModified = 1) => new File(['x'], name, { type, lastModified })
 const lrc = (name: string, body: string) => new File([body], name, { type: 'text/plain' })
@@ -200,9 +203,10 @@ describe('folder paths', () => {
 
   it('records the folder a file was picked from', async () => {
     const { tracks } = await filesToTracks([inFolder('a.mp3', 'Music/Rock/a.mp3'), inFolder('b.mp3', 'Music/b.mp3')])
+    // a folder's own files come before its subfolders: the import is ordered folder by folder, not by file name alone
     expect(tracks.map((t) => [t.file.name, t.path])).toEqual([
-      ['a.mp3', 'Music/Rock'],
       ['b.mp3', 'Music'],
+      ['a.mp3', 'Music/Rock'],
     ])
   })
 
@@ -223,6 +227,20 @@ describe('folder paths', () => {
     expect(track.path).toBe('')
     expect(track).toMatchObject({ addedAt: 0, plays: 0, lastPlayedAt: null })
   })
+
+  it('gives records saved before the analysis fields existed neutral values and "never analysed"', () => {
+    const legacy = { id: 't1', key: 'k', file: audio('a.mp3'), path: '', coverBlob: null, title: 'A', artist: 'B', album: '', duration: 0, lyrics: null, gainDb: null, addedAt: 0, plays: 0, lastPlayedAt: null }
+    // @ts-expect-error old IndexedDB rows have none of the analysis fields
+    const track = buildTrack(legacy)
+    expect(track).toMatchObject({ albumArtist: '', trackNo: 0, trackTotal: 0, discNo: 0, discTotal: 0, year: 0, genre: '', compilation: false, audio: null, indexed: 0 })
+  })
+
+  it('repairs damaged analysis fields instead of passing them on', () => {
+    const odd = { id: 't1', key: 'k', file: audio('a.mp3'), path: '', coverBlob: null, title: 'A', artist: 'B', album: '', duration: 0, lyrics: null, gainDb: null, addedAt: 0, plays: 0, lastPlayedAt: null, ...EMPTY_META, trackNo: -4, year: 'x', audio: 'flac' }
+    // @ts-expect-error deliberately wrong types, as a damaged profile could hold
+    const track = buildTrack(odd)
+    expect(track).toMatchObject({ trackNo: 0, year: 0, audio: null })
+  })
 })
 
 describe('buildTrack / revokeTrack', () => {
@@ -238,6 +256,7 @@ describe('buildTrack / revokeTrack', () => {
     duration: 0,
     lyrics: null,
     gainDb: null, addedAt: 0, plays: 0, lastPlayedAt: null,
+    ...EMPTY_META,
   }
 
   it('adds an object URL for the audio and none for missing artwork', () => {
@@ -278,6 +297,19 @@ describe('buildTrack / revokeTrack', () => {
     expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
     expect(URL.revokeObjectURL).toHaveBeenCalledWith(url)
+  })
+
+  it('a track rebuilt to replace another shares its object URLs: nothing is minted again, and revoking frees them once', () => {
+    const old = buildTrack({ ...rec, coverBlob: new Blob(['i']) })
+    const url = old.url
+    const cover = old.cover
+    const next = buildTrack({ ...rec, coverBlob: new Blob(['i']), title: 'Patched' }, old)
+    expect(next.title).toBe('Patched')
+    expect(next.url).toBe(url)
+    expect(next.cover).toBe(cover)
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(2)
+    revokeTrack(next)
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2)
   })
 
   it('a spread copy is a plain object that revokes the URLs it captured', () => {

@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AudioEngine, EQ_PRESETS } from '../lib/engine'
 import * as db from '../lib/db'
 import { estimateGainDb } from '../lib/loudness'
-import { buildTrack, filesToTracks, lrcFromFile, norm, revokeTrack } from '../lib/metadata'
+import { buildTrack, lrcFromFile, norm, revokeTrack } from '../lib/metadata'
+import { importFiles } from '../lib/importer'
+import { analyzeOnDemand } from '../lib/analyzeOnDemand'
+import { needsUpgrade, upgradeLibrary, upgradePatch } from '../lib/upgrade'
+import type { UpgradePatch } from '../lib/upgrade'
+import { announce } from '../lib/a11y'
 import { moveItem, nextRepeat, pickTrack, resolveQueue } from '../lib/queue'
 import { buildBackup, normalizePending, planRestore, resolvePending, serializeBackup } from '../lib/backup'
 import type { Backup, PendingRestore, ResolveResult, RestoreSummary } from '../lib/backup'
@@ -16,7 +21,7 @@ import { mergeSpatial, normalizeSpatial } from '../lib/spatial'
 import { addBand, bandsFromSettings, deletePreset, findPreset, graphicBands, normalizePresets, normalizeTrackEq, removeBand, savePreset, updateBand } from '../lib/eq'
 import { mergeReverb, normalizeReverb } from '../lib/reverb'
 import { mergeDynamics, mergeStereo, mergeTone, normalizeDynamics, normalizeStereo, normalizeTone } from '../lib/dynamics'
-import type { DynamicsPatch, DynamicsSettings, EqBand, EqPreset, Lyrics, PlayerApi, Playlist, RepeatMode, ReverbSettings, Settings, SpatialSettings, StereoSettings, TagEditOutcome, ToneSettings, Track, TransitionMode } from '../types'
+import type { DynamicsPatch, DynamicsSettings, EqBand, EqPreset, ImportProgress, Lyrics, PlayerApi, Playlist, RepeatMode, ReverbSettings, Settings, SpatialSettings, StereoSettings, TagEditOutcome, ToneSettings, Track, TransitionMode, UpgradeProgress } from '../types'
 
 const clamp = (v: number, a: number, b: number): number => Math.min(b, Math.max(a, v))
 const XFADE_SECS = 5
@@ -101,6 +106,8 @@ export function usePlayer(): PlayerApi {
   const [hydrated, setHydrated] = useState(false)
   /** Progress (0..1) of decoding the current track in JavaScript, or null when it is not being decoded. */
   const [decoding, setDecoding] = useState<number | null>(null)
+  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null)
+  const [upgradeProgress, setUpgradeProgress] = useState<UpgradeProgress | null>(null)
 
   const active = useRef<DeckIndex>(0) // index of the deck the user is hearing
   const history = useRef<string[]>([])
@@ -120,6 +127,13 @@ export function usePlayer(): PlayerApi {
   const tally = useRef(new PlayTally())
   /** Set after `next` exists; used where `load` has to skip an unplayable track. */
   const skipUnplayable = useRef<() => void>(() => {})
+  /** Imports run one after another (so none misses what the one before added); each has its own abort controller. */
+  const importChain = useRef<Promise<unknown>>(Promise.resolve())
+  const importAborts = useRef(new Set<AbortController>())
+  const importsPending = useRef(0)
+  /** Bumped when the library is cleared, so work still in flight for the old library is thrown away. */
+  const libraryEpoch = useRef(0)
+  const upgradeAbort = useRef<AbortController | null>(null)
   const state = useRef<Snapshot>({
     tracks: [],
     queue: [],
@@ -533,38 +547,94 @@ export function usePlayer(): PlayerApi {
   }, [])
 
   // ---- library ----
-  const addFiles = useCallback(
-    async (fileList: Iterable<File> | ArrayLike<File>) => {
-      setLoading(true)
-      try {
-        const existing = new Set(state.current.tracks.map((t) => t.key))
-        const { tracks: added, orphanLrc } = await filesToTracks(fileList, existing)
-        const first = added[0]
-        if (first) {
+  /**
+   * One import: files are read a few at a time and the tracks appear (and are saved) in batches while the rest is still
+   * being read, so a big folder shows up at once and survives being cancelled or closed halfway.
+   */
+  const importOne = useCallback(
+    async (files: File[], signal: AbortSignal): Promise<number> => {
+      const epoch = libraryEpoch.current
+      const existing = new Set(state.current.tracks.map((t) => t.key))
+      let firstBatch = true
+      let saveFailed = false
+      let shownAt = 0
+      const result = await importFiles(files, {
+        existingKeys: existing,
+        signal,
+        // the media element is only asked for the length of files whose headers no probe could read
+        analyze: (file) => analyzeOnDemand(file),
+        onProgress: (p) => {
+          const now = performance.now()
+          if (p.done >= p.total || now - shownAt > 120) {
+            shownAt = now
+            setImportProgress({ ...p })
+          }
+        },
+        onBatch: (added) => {
+          if (epoch !== libraryEpoch.current) return // the library was cleared while these were being read
           const wasEmpty = state.current.tracks.length === 0
           state.current.tracks = [...state.current.tracks, ...added]
           setTracks((l) => [...l, ...added])
-          setViewId('all')
-          db.putTracks(added).catch(() => notify('Could not save to the offline library (storage blocked or full)'))
-          navigator.storage?.persist?.().catch?.(() => {})
-          if (wasEmpty && !state.current.currentId) load(first, false)
+          if (firstBatch) {
+            firstBatch = false
+            setViewId('all')
+            navigator.storage?.persist?.().catch?.(() => {})
+          }
+          db.putTracks(added).catch(() => {
+            if (saveFailed) return
+            saveFailed = true
+            notify('Could not save to the offline library (storage blocked or full)')
+          })
+          const head = added[0]
+          if (wasEmpty && head && !state.current.currentId) load(head, false)
           resolveNow() // files that a restored backup was waiting for may have just arrived
-        }
-        for (const o of orphanLrc) {
-          const n = norm(o.name)
-          const lib = state.current.tracks
-          const target =
-            lib.find((t) => norm(t.file.name) === n || t.title.toLowerCase() === n) ||
-            (orphanLrc.length === 1 && !added.length ? lib.find((t) => t.id === state.current.currentId) : null)
-          if (target) updateLyrics(target.id, o.lyrics)
-        }
-        return added.length
-      } finally {
-        setLoading(false)
+        },
+      })
+      if (epoch !== libraryEpoch.current) return 0
+
+      for (const o of result.orphanLrc) {
+        const n = norm(o.name)
+        const lib = state.current.tracks
+        const target =
+          lib.find((t) => norm(t.file.name) === n || t.title.toLowerCase() === n) ||
+          (result.orphanLrc.length === 1 && !result.tracks.length ? lib.find((t) => t.id === state.current.currentId) : null)
+        if (target) updateLyrics(target.id, o.lyrics)
       }
+      const n = result.tracks.length
+      if (result.cancelled) notify(`Import cancelled: ${n} of ${result.total} files added`)
+      else if (result.failed) notify(`${result.failed} ${result.failed === 1 ? 'file' : 'files'} could not be read`)
+      if (n || result.duplicates) {
+        const added = n ? `${n} ${n === 1 ? 'track' : 'tracks'} added` : 'Nothing new'
+        announce(result.duplicates ? `${added}, ${result.duplicates} already in your library` : added)
+      }
+      return n
     },
     [load, notify, resolveNow, updateLyrics],
   )
+
+  const addFiles = useCallback(
+    (fileList: Iterable<File> | ArrayLike<File>): Promise<number> => {
+      const files = Array.from(fileList) // copied at once: the browser empties a FileList when its input is reset
+      const controller = new AbortController()
+      importAborts.current.add(controller)
+      importsPending.current++
+      setLoading(true)
+      const run = importChain.current.then(() => importOne(files, controller.signal))
+      importChain.current = run.catch(() => undefined)
+      return run.finally(() => {
+        importAborts.current.delete(controller)
+        if (--importsPending.current === 0) {
+          setLoading(false)
+          setImportProgress(null)
+        }
+      })
+    },
+    [importOne],
+  )
+
+  const cancelImport = useCallback(() => {
+    importAborts.current.forEach((controller) => controller.abort())
+  }, [])
 
   const remove = useCallback(
     (id: string) => {
@@ -603,6 +673,10 @@ export function usePlayer(): PlayerApi {
   )
 
   const clear = useCallback(() => {
+    // whatever is still being imported or analysed belongs to the library that is about to go
+    libraryEpoch.current++
+    importAborts.current.forEach((controller) => controller.abort())
+    upgradeAbort.current?.abort()
     cancelTransition()
     engine.decks.forEach((d) => {
       d.el.pause()
@@ -780,12 +854,13 @@ export function usePlayer(): PlayerApi {
         if (!alive) return
         const ids = Array.isArray(order) ? order : []
         const byId = new Map(rows.map((r) => [r.id, r]))
+        const inOrder = new Set(ids) // one lookup per row instead of a scan of the whole order list for each
         const ordered = [
           ...ids.flatMap((i) => {
             const r = byId.get(i)
             return r ? [r] : []
           }),
-          ...rows.filter((r) => !ids.includes(r.id)),
+          ...rows.filter((r) => !inOrder.has(r.id)),
         ]
         const restored = ordered.map((rec) => buildTrack(rec))
         const first = restored[0]
@@ -816,7 +891,49 @@ export function usePlayer(): PlayerApi {
     }
   }, [load])
 
-  const orderKey = tracks.map((t) => t.id).join(',')
+  // A library stored before durations, track numbers, genres and formats were read is brought up to date quietly in the
+  // background, from the audio copies it already holds. The progress lives in the records (`indexed`), so a restart
+  // carries on where this left off.
+  useEffect(() => {
+    if (!hydrated) return undefined
+    const pending = state.current.tracks.filter(needsUpgrade)
+    if (!pending.length) return undefined
+    const controller = new AbortController()
+    upgradeAbort.current = controller
+    const epoch = libraryEpoch.current
+    let shownAt = 0
+    void upgradeLibrary(
+      pending.map((t) => ({ id: t.id, file: t.file })),
+      {
+        signal: controller.signal,
+        onProgress: (p) => {
+          const now = performance.now()
+          if (p.done >= p.total || now - shownAt > 250) {
+            shownAt = now
+            setUpgradeProgress(p.done >= p.total ? null : { ...p })
+          }
+        },
+        onBatch: (results) => {
+          if (epoch !== libraryEpoch.current) return undefined
+          const patches = new Map<string, UpgradePatch>()
+          for (const t of state.current.tracks) if (results.has(t.id)) patches.set(t.id, upgradePatch(t, results.get(t.id) ?? null))
+          if (!patches.size) return undefined
+          // rebuilt copies share the object URLs of the tracks they replace, so playback and artwork carry on untouched
+          setTracks((l) =>
+            l.map((t) => {
+              const patch = patches.get(t.id)
+              return patch ? buildTrack({ ...db.toRecord(t), ...patch }, t) : t
+            }),
+          )
+          return db.patchTracks(patches).catch(() => {})
+        },
+      },
+    ).finally(() => setUpgradeProgress(null))
+    return () => controller.abort()
+  }, [hydrated])
+
+  // the player re-renders several times a second: the id list is rebuilt only when the library itself changes
+  const orderKey = useMemo(() => tracks.map((t) => t.id).join(','), [tracks])
   useEffect(() => {
     if (hydrated) db.setMeta('order', tracks.map((t) => t.id)).catch(() => {})
   }, [hydrated, orderKey]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -927,7 +1044,15 @@ export function usePlayer(): PlayerApi {
         setTime(el.currentTime)
       }
       const id = state.current.currentId
-      if (id && Number.isFinite(d)) setTracks((l) => l.map((t) => (t.id === id && !t.duration ? { ...t, duration: d } : t)))
+      if (id && Number.isFinite(d)) {
+        // what the browser reports is what the seek bar uses: learn it, and keep it (an estimate from a header-less
+        // file is replaced by the real length the first time the file is played)
+        const known = state.current.tracks.find((t) => t.id === id)
+        if (known && Math.abs((known.duration || 0) - d) > 0.5) {
+          setTracks((l) => l.map((t) => (t.id === id ? { ...t, duration: d } : t)))
+          db.patchTracks(new Map([[id, { duration: d }]])).catch(() => {})
+        }
+      }
     }
     const onPlay = (e: Event) => {
       if (!isActive(e)) return
@@ -1124,7 +1249,7 @@ export function usePlayer(): PlayerApi {
   return {
     engine, tracks, queue, playlists, viewId, setViewId, current, currentId, playing, time, duration, volume, muted,
     repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, normalize, setNormalize, eq, eqOn, setEqOn, setEqBand, applyPreset, eqBands, updateEqBand, addEqBand, removeEqBand, resetEq, eqRemembered, setEqRemembered, eqPresets, saveEqPreset, loadEqPreset, deleteEqPreset, spatial, setSpatial, reverb, setReverb, dynamics, setDynamics, stereo, setStereo, tone, setTone, sleepLeft, setSleep,
-    loading, notice, hydrated, decoding,
+    loading, importProgress, cancelImport, upgradeProgress, notice, hydrated, decoding,
     play, toggle, next: () => next(false), prev, seek, position: () => getEl().currentTime, seekBy, setVolume, volumeBy, toggleMute,
     cycleRepeat, toggleShuffle, addFiles, attachLrc, editTags, remove, clear, reorder,
     createPlaylist, addToPlaylist, deletePlaylist, resetPlays,

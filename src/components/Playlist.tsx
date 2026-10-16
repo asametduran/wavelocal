@@ -5,7 +5,7 @@ import Cover from './Cover'
 import { Deferred, lazyRetry, preloadWhenIdle } from './lazy'
 import { useRovingKeys } from '../hooks/useA11y'
 import { announce, matchAnnouncement, moveAnnouncement } from '../lib/a11y'
-import { formatTime } from '../lib/format'
+import { formatTime, formatTotal } from '../lib/format'
 import { SMART_LISTS, smartCounts, smartDetail, smartList } from '../lib/smart'
 import type { PlayerApi } from '../types'
 
@@ -105,6 +105,19 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
         .filter(({ t }) => !q || `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(q)),
     [p.queue, q],
   )
+
+  // "12 tracks · 48 min": a "+" when some lengths are still unknown (a library that is being brought up to date)
+  const summary = useMemo(() => {
+    let seconds = 0
+    let unknown = false
+    for (const { t } of rows) {
+      if (t.duration) seconds += t.duration
+      else unknown = true
+    }
+    const tracks = `${rows.length} ${rows.length === 1 ? 'track' : 'tracks'}`
+    const total = formatTotal(seconds)
+    return total ? `${tracks} · ${total}${unknown ? '+' : ''}` : tracks
+  }, [rows])
 
   // say how many tracks match, once typing pauses
   useEffect(() => {
@@ -275,6 +288,12 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
           )}
         </label>
       </div>
+
+      {rows.length > 0 && (
+        <p className="px-4 pb-2 text-xs tabular-nums text-zinc-400" data-testid="library-summary">
+          {summary}
+        </p>
+      )}
 
       {mode === 'folders' ? (
         <Deferred label="the folder view" onDismiss={() => (FolderTree.reset(), setMode('list'))}>

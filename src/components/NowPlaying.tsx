@@ -1,6 +1,7 @@
 import { useId, useState } from 'react'
 import { FolderOpen, Headphones, Upload } from 'lucide-react'
 import Cover from './Cover'
+import FormatBadge from './FormatBadge'
 import Lyrics from './Lyrics'
 import RovingGroup from './RovingGroup'
 import Visualizer from './Visualizer'
@@ -74,6 +75,7 @@ export default function NowPlaying({ p, onPickFiles, onPickFolder }: NowPlayingP
               <h2 className="mt-5 line-clamp-2 text-2xl font-bold tracking-tight sm:text-3xl">{current.title}</h2>
               <p className="mt-1 text-base text-zinc-300">{current.artist}</p>
               {current.album && <p className="text-sm text-zinc-400">{current.album}</p>}
+              <FormatBadge audio={current.audio} className="mt-1" />
               <Visualizer engine={p.engine} playing={playing} className="mt-5 h-16 max-w-md" />
             </div>
           ) : (

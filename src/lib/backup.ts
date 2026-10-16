@@ -38,6 +38,16 @@ export interface BackupTrack {
   lastPlayedAt: number | null
   /** The track's own equalizer curve, if it has one. */
   eq?: EqBand[]
+  // Details read from the file (see `TagMeta`). Optional, and only written when known: a backup made before they
+  // existed has none of them, and still restores.
+  albumArtist?: string
+  trackNo?: number
+  trackTotal?: number
+  discNo?: number
+  discTotal?: number
+  year?: number
+  genre?: string
+  compilation?: boolean
 }
 
 export interface BackupPlaylist {
@@ -96,6 +106,14 @@ export function buildBackup(tracks: readonly Track[], playlists: readonly Playli
         lastPlayedAt: t.lastPlayedAt,
       }
       if (eq) entry.eq = eq
+      if (t.albumArtist) entry.albumArtist = t.albumArtist
+      if (t.trackNo) entry.trackNo = t.trackNo
+      if (t.trackTotal) entry.trackTotal = t.trackTotal
+      if (t.discNo) entry.discNo = t.discNo
+      if (t.discTotal) entry.discTotal = t.discTotal
+      if (t.year) entry.year = t.year
+      if (t.genre) entry.genre = t.genre
+      if (t.compilation) entry.compilation = true
       return entry
     }),
     playlists: playlists.map((p) => ({ id: p.id, name: p.name, keys: p.trackIds.flatMap((id) => keyById.get(id) ?? []) })),
@@ -123,6 +141,8 @@ function text(v: unknown, max: number): string {
 }
 
 const count = (v: unknown, max: number): number => (typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(0, Math.round(v))) : 0)
+/** A whole number in range or nothing (0): for values that are either right or meaningless, so they are not clamped. */
+const exact = (v: unknown, max: number): number => (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= max ? v : 0)
 const stamp = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 8.64e15 ? Math.round(v) : 0)
 
 function parseLyrics(v: unknown): Lyrics | null {
@@ -158,6 +178,17 @@ function parseTrack(v: unknown): BackupTrack | null {
   }
   const eq = normalizeTrackEq({ [v.key]: v.eq })[v.key]
   if (eq) track.eq = eq
+  const albumArtist = text(v.albumArtist, 300)
+  if (albumArtist) track.albumArtist = albumArtist
+  const genre = text(v.genre, 100)
+  if (genre) track.genre = genre
+  for (const field of ['trackNo', 'trackTotal', 'discNo', 'discTotal'] as const) {
+    const n = exact(v[field], 9999)
+    if (n) track[field] = n
+  }
+  const year = exact(v.year, 2999)
+  if (year >= 1000) track.year = year
+  if (v.compilation === true) track.compilation = true
   return track
 }
 
@@ -211,7 +242,9 @@ export function parseBackup(raw: string): ParseResult {
 
 // ---- import: merging ------------------------------------------------------------------------------------------
 
-export type TrackPatch = Partial<Pick<TrackRecord, 'title' | 'artist' | 'album' | 'lyrics' | 'gainDb' | 'addedAt' | 'plays' | 'lastPlayedAt'>>
+type Restorable = 'title' | 'artist' | 'album' | 'lyrics' | 'gainDb' | 'addedAt' | 'plays' | 'lastPlayedAt' | 'albumArtist' | 'trackNo' | 'trackTotal' | 'discNo' | 'discTotal' | 'year' | 'genre' | 'compilation'
+
+export type TrackPatch = Partial<Pick<TrackRecord, Restorable>>
 
 const sameLyrics = (a: Lyrics | null, b: Lyrics | null): boolean =>
   a === b || (a !== null && b !== null && a.synced === b.synced && a.lines.length === b.lines.length && a.lines.every((l, i) => l.t === b.lines[i]?.t && l.text === b.lines[i]?.text))
@@ -221,7 +254,7 @@ const sameLyrics = (a: Lyrics | null, b: Lyrics | null): boolean =>
  * counters only ever grow (play counts take the larger value, "added" takes the earlier date), and measured loudness
  * only fills a gap. Applying the same backup twice changes nothing the second time.
  */
-export function diffTrack(local: Pick<TrackRecord, 'title' | 'artist' | 'album' | 'lyrics' | 'gainDb' | 'addedAt' | 'plays' | 'lastPlayedAt'>, from: BackupTrack): TrackPatch {
+export function diffTrack(local: Pick<TrackRecord, Restorable>, from: BackupTrack): TrackPatch {
   const patch: TrackPatch = {}
   if (from.title && from.title !== local.title) patch.title = from.title
   if (from.artist && from.artist !== local.artist) patch.artist = from.artist
@@ -231,6 +264,15 @@ export function diffTrack(local: Pick<TrackRecord, 'title' | 'artist' | 'album' 
   if (from.addedAt > 0 && (!local.addedAt || from.addedAt < local.addedAt)) patch.addedAt = from.addedAt
   if (from.plays > (local.plays || 0)) patch.plays = from.plays
   if (from.lastPlayedAt !== null && from.lastPlayedAt > (local.lastPlayedAt ?? 0)) patch.lastPlayedAt = from.lastPlayedAt
+  // details from the files: like tags, the backup wins where it says something; it never blanks a value or clears a flag
+  if (from.albumArtist && from.albumArtist !== local.albumArtist) patch.albumArtist = from.albumArtist
+  if (from.trackNo && from.trackNo !== local.trackNo) patch.trackNo = from.trackNo
+  if (from.trackTotal && from.trackTotal !== local.trackTotal) patch.trackTotal = from.trackTotal
+  if (from.discNo && from.discNo !== local.discNo) patch.discNo = from.discNo
+  if (from.discTotal && from.discTotal !== local.discTotal) patch.discTotal = from.discTotal
+  if (from.year && from.year !== local.year) patch.year = from.year
+  if (from.genre && from.genre !== local.genre) patch.genre = from.genre
+  if (from.compilation && !local.compilation) patch.compilation = true
   return patch
 }
 

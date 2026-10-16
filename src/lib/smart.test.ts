@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Track } from '../types'
+import { EMPTY_META } from './trackmeta'
 import { SMART_LIMIT, SMART_LISTS, describeAge, isSmartId, playsLabel, smartCounts, smartDetail, smartList, smartTracks } from './smart'
 
 const NOW = Date.UTC(2026, 5, 15, 12)
@@ -21,6 +22,7 @@ function track(id: string, over: Partial<Track> = {}): Track {
     addedAt: 0,
     plays: 0,
     lastPlayedAt: null,
+    ...EMPTY_META,
     url: '',
     cover: null,
     ...over,

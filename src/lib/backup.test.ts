@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { EqBand, Playlist, Track } from '../types'
 import { graphicBands } from './eq'
+import { EMPTY_META } from './trackmeta'
 import {
   BACKUP_FORMAT,
   BACKUP_VERSION,
@@ -32,6 +33,7 @@ function track(id: string, over: Partial<Track> = {}): Track {
     addedAt: 0,
     plays: 0,
     lastPlayedAt: null,
+    ...EMPTY_META,
     url: '',
     cover: null,
     ...over,
@@ -61,6 +63,14 @@ describe('buildBackup', () => {
     const json = serializeBackup(backup)
     expect(json).not.toContain('coverBlob')
     expect(json).not.toContain('"file"')
+  })
+
+  it('carries the details read from the files (album artist, numbers, year, genre, compilation) when they are known', () => {
+    const rich = track('a', { albumArtist: 'Various', trackNo: 3, trackTotal: 12, discNo: 1, discTotal: 2, year: 2019, genre: 'Pop', compilation: true })
+    const backup = buildBackup([rich, track('b')], [], {}, NOW)
+    expect(backup.tracks[0]).toMatchObject({ albumArtist: 'Various', trackNo: 3, trackTotal: 12, discNo: 1, discTotal: 2, year: 2019, genre: 'Pop', compilation: true })
+    // a track that has none of them does not carry empty placeholders
+    for (const key of ['albumArtist', 'trackNo', 'trackTotal', 'discNo', 'discTotal', 'year', 'genre', 'compilation']) expect(backup.tracks[1]).not.toHaveProperty(key)
   })
 
   it('names the file after the date', () => {
@@ -142,6 +152,37 @@ describe('parseBackup', () => {
     expect(r.backup.playlists[0]?.id).toBeTruthy()
   })
 
+  it('round-trips the details too, and an older backup without them still reads', () => {
+    const rich = buildBackup([track('a', { albumArtist: 'Various', trackNo: 3, trackTotal: 12, discNo: 1, discTotal: 2, year: 2019, genre: 'Pop', compilation: true })], [], {}, NOW)
+    expect(parseBackup(serializeBackup(rich))).toEqual({ ok: true, backup: rich, skipped: 0 })
+    const old = JSON.stringify({ format: BACKUP_FORMAT, version: 1, tracks: [{ key: 'a|1|1', title: 'A', plays: 1 }], playlists: [] })
+    const r = parseBackup(old)
+    expect(r.ok && r.backup.tracks[0]).not.toHaveProperty('year')
+    expect(r.ok && r.backup.tracks[0]).not.toHaveProperty('compilation')
+  })
+
+  it('cleans and bounds the details like every other value', () => {
+    const raw = JSON.stringify({
+      format: BACKUP_FORMAT,
+      version: 1,
+      tracks: [
+        { key: 'a|1|1', albumArtist: `Al\u0000bum${'x'.repeat(500)}`, genre: 'g'.repeat(400), trackNo: -3, trackTotal: 99999, discNo: 'two', discTotal: 1.5, year: 12, compilation: 'yes' },
+        { key: 'b|1|1', trackNo: 7, year: 1994, compilation: true, genre: 'Rock' },
+        { key: 'c|1|1', year: 3500 },
+      ],
+      playlists: [],
+    })
+    const r = parseBackup(raw)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const [a, b, c] = r.backup.tracks
+    expect(a?.albumArtist).toHaveLength(300)
+    expect(a?.genre).toHaveLength(100)
+    for (const key of ['trackNo', 'trackTotal', 'discNo', 'discTotal', 'year', 'compilation']) expect(a, key).not.toHaveProperty(key)
+    expect(b).toMatchObject({ trackNo: 7, year: 1994, compilation: true, genre: 'Rock' })
+    expect(c).not.toHaveProperty('year')
+  })
+
   it('gives playlists with clashing ids distinct ids', () => {
     const raw = JSON.stringify({ format: BACKUP_FORMAT, version: 1, tracks: [], playlists: [{ id: 'p', name: 'A', keys: [] }, { id: 'p', name: 'B', keys: [] }] })
     const r = parseBackup(raw)
@@ -172,6 +213,30 @@ describe('diffTrack', () => {
     expect(diffTrack(track('a'), bt('a', { gainDb: -3 }))).toEqual({ gainDb: -3 })
     expect(diffTrack(track('a', { gainDb: 1 }), bt('a', { gainDb: -3 }))).toEqual({})
   })
+  it('lets the details in the backup win, and leaves what it does not say alone', () => {
+    const rich = track('a', { albumArtist: 'Old', trackNo: 1, trackTotal: 10, discNo: 1, discTotal: 1, year: 1999, genre: 'Jazz', compilation: false })
+    expect(diffTrack(rich, bt('a', { albumArtist: 'New', trackNo: 4, trackTotal: 12, discNo: 2, discTotal: 3, year: 2019, genre: 'Pop', compilation: true }))).toEqual({
+      albumArtist: 'New',
+      trackNo: 4,
+      trackTotal: 12,
+      discNo: 2,
+      discTotal: 3,
+      year: 2019,
+      genre: 'Pop',
+      compilation: true,
+    })
+    // an older backup says nothing about them: nothing changes
+    expect(diffTrack(rich, bt('a'))).toEqual({})
+    // and it never switches a compilation flag off
+    expect(diffTrack(track('a', { compilation: true }), bt('a', { compilation: false }))).toEqual({})
+  })
+
+  it('counts a track whose only change is a detail as updated', () => {
+    const plan = planRestore({ format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: '', tracks: [bt('a', { year: 2019 })], playlists: [] }, [track('a')], [], {}, null, newId)
+    expect(plan.summary).toMatchObject({ matched: 1, updated: 1 })
+    expect(plan.patches.get('a')).toEqual({ year: 2019 })
+  })
+
   it('does not blank a tag the backup does not have', () => {
     expect(diffTrack(track('a', { title: 'Keep' }), bt('a', { title: '', artist: '' }))).toEqual({})
   })

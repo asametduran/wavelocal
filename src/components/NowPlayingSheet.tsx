@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from 'react'
 import { ChevronDown, ListMusic, SlidersHorizontal } from 'lucide-react'
 import Cover from './Cover'
+import FormatBadge from './FormatBadge'
 import Lyrics from './Lyrics'
 import Visualizer from './Visualizer'
 import { StageTabs } from './NowPlaying'
@@ -75,6 +76,7 @@ export default function NowPlayingSheet({ p, open, onClose, onOpenQueue, onOpenT
           <div className="mt-5 w-full text-center">
             <h2 className="line-clamp-2 text-2xl font-bold tracking-tight">{current?.title ?? 'Nothing playing'}</h2>
             <p className="mt-1 truncate text-base text-zinc-300">{current?.artist}</p>
+            <FormatBadge audio={current?.audio} className="mt-1" />
           </div>
           <Visualizer engine={p.engine} playing={playing} className="mt-4 h-12" />
         </div>

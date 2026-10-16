@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { toRecord } from './db'
 import type { Track, TrackRecord } from '../types'
+import { EMPTY_META } from './trackmeta'
 
 const file = new File(['audio'], 'a.mp3', { type: 'audio/mpeg' })
 
@@ -16,6 +17,7 @@ const base: TrackRecord = {
   duration: 12.5,
   lyrics: { synced: true, lines: [{ t: 1, text: 'x' }] },
   gainDb: -3.5, addedAt: 0, plays: 0, lastPlayedAt: null,
+  ...EMPTY_META,
 }
 
 describe('toRecord', () => {
@@ -26,7 +28,8 @@ describe('toRecord', () => {
   it('drops in-memory object URLs and any other extra fields', () => {
     const track: Track & { selected: boolean } = { ...base, url: 'blob:abc', cover: 'blob:def', selected: true }
     const record = toRecord(track)
-    expect(Object.keys(record).sort()).toEqual(['addedAt', 'album', 'artist', 'coverBlob', 'duration', 'file', 'gainDb', 'id', 'key', 'lastPlayedAt', 'lyrics', 'path', 'plays', 'title'])
+    const persisted = ['addedAt', 'album', 'albumArtist', 'artist', 'audio', 'compilation', 'coverBlob', 'discNo', 'discTotal', 'duration', 'file', 'gainDb', 'genre', 'id', 'indexed', 'key', 'lastPlayedAt', 'lyrics', 'path', 'plays', 'title', 'trackNo', 'trackTotal', 'year']
+    expect(Object.keys(record).sort()).toEqual(persisted.sort())
     expect(record).not.toHaveProperty('url')
     expect(record).not.toHaveProperty('cover')
   })

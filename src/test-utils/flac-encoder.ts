@@ -35,6 +35,8 @@ export interface FlacEncodeOptions {
   /** Add a SEEKTABLE with a point every N frames. */
   seekEvery?: number
   vorbis?: { vendor: string; comments: string[] }
+  /** Cover art, written as a PICTURE metadata block (front cover, no description). */
+  picture?: { mime: string; data: Uint8Array }
   /** Bytes of PADDING metadata. */
   padding?: number
   /** An ID3v2 tag to put in front of the stream. */
@@ -572,6 +574,22 @@ export function encodeFlac(channels: Int32Array[], options: FlacEncodeOptions): 
       p += 4 + c.length
     }
     blocks.push({ type: 4, body })
+  }
+  if (options.picture) {
+    const mime = new TextEncoder().encode(options.picture.mime)
+    const data = options.picture.data
+    const body = new Uint8Array(32 + mime.length + data.length)
+    const view = new DataView(body.buffer)
+    view.setUint32(0, 3, false) // front cover
+    view.setUint32(4, mime.length, false)
+    body.set(mime, 8)
+    let p = 8 + mime.length
+    view.setUint32(p, 0, false) // empty description
+    // width, height, colour depth, indexed colours: left at 0 (unknown)
+    p += 4 + 16
+    view.setUint32(p, data.length, false)
+    body.set(data, p + 4)
+    blocks.push({ type: 6, body })
   }
   if (options.padding) blocks.push({ type: 1, body: new Uint8Array(options.padding) })
 

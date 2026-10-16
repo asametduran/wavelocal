@@ -16,6 +16,9 @@ A modern dark-mode music player that runs entirely in your browser. Your files a
 - **Modes** — shuffle, repeat all, repeat one
 - **Load music** — drag & drop anywhere on the window (whole folders included), pick files, or pick a whole folder
 - **Folder view** — the tree button in the library header browses by the folder structure you imported: keyboard-navigable (arrows, Home/End), searchable, remembers which folders are open, with *Play folder* and *Save as playlist* per folder
+- **File details** — importing reads the *headers* of every file in pure TypeScript (nothing is decoded): MP3 (Xing/Info/VBRI frame counts and the LAME encoder delay, or a walk over every frame for a variable-bitrate file that has no header), MP4/M4A (AAC and Apple Lossless; the track's edit list for the playable length, the sample table for the true bitrate), Ogg Vorbis and Opus, FLAC, WAV/RF64 and raw ADTS AAC. Every track therefore has its real length at once (the library header shows the total), the Now Playing screen shows what the file is (`FLAC · 96 kHz · 24-bit`, a Hi-Res mark above CD quality, `MP3 · 193 kbps VBR`), and the tags `jsmediatags` cannot read come through too: Ogg, FLAC and WAV tags and artwork, album artist, track and disc numbers, year, genre (numeric ID3 genres such as `(13)` become names) and the compilation flag. The probes were checked against `ffprobe`, `mutagen` and Chromium on well over a hundred really encoded files, and a seeded fuzz test feeds them damaged ones. Anything no probe understands falls back to asking the browser for the length.
+- **Scalable import** — files are read a few at a time (never thousands at once); tracks appear and are saved in batches of 100 while the rest is still being read; a progress pill counts the files and has a *Cancel* button (what was read stays); imports started together queue up and never add a file twice; a folder imports folder by folder, in natural file order.
+- **Upgrades itself** — a library stored by an earlier version is brought up to date quietly in the background, from the audio copies it already holds (lengths, track numbers, formats, genres...): a few files at a time, the progress kept in the records so a restart carries on, only unknown fields filled in (a loudness you measured or a value you set is never overwritten), and nothing re-imported or rewritten.
 - **ID3 metadata** — title, artist, album and embedded cover art via `jsmediatags`; sleek procedural gradient artwork when a file has none
 - **Smart playlists** — *Recently added*, *Most played*, *Recently played* and *Never played* sit in the library menu and fill themselves. A track counts as played once you have actually heard half of it or 30 seconds (pausing and seeking do not count, so skipping around cannot inflate it); counts and dates live only in your offline library on this device, can be cleared with one button, and a library from before this existed keeps working. A smart list is ordered when you open it and does not reshuffle under you while you listen.
 - **Backup & restore** — Sound & tools → *Backup & restore* exports your playlists, tags, lyrics, play counts, added dates and per-track EQ curves to one JSON file (no audio, no artwork) and restores from one. Restoring is a merge that shows a preview first and never removes anything: matching tracks (same name, size and modified time as the library key) get their tags, lyrics and counters back (counts only ever go up), playlists are merged by id or name, and anything that refers to files you do not have yet is remembered and fills in automatically as those files are added, even after a restart. The file is untrusted input: size-capped, validated field by field, damaged entries skipped and reported.
@@ -137,6 +140,15 @@ src/
 │   ├── eq.ts             band model, biquad maths, response curve, custom presets
 │   ├── dynamics.ts       compressor / limiter / stereo-width / tone model and maths
 │   ├── audio/            WAV + FLAC decoders, PCM16 encoder, container sniffing, worker, playable-URL resolver
+│   │   ├── probe/        header-only container probes (MP3, MP4, Ogg, FLAC, WAV, ADTS) + ID3 text frames: duration, format, tags
+│   │   ├── source.ts     seekable byte source (read a few headers of a file, never all of it) + integer readers
+│   │   └── vorbis.ts     Vorbis comments and FLAC pictures (tags of FLAC, Ogg and Opus)
+│   ├── importer.ts       the import pipeline: bounded concurrency, batches, progress, cancel, ordering, de-duplication
+│   ├── analyze.ts        one pass over a file: probe + tag readers → tags, details, duration, cover, ReplayGain
+│   ├── upgrade.ts        background upgrade of libraries stored before the details were read
+│   ├── tagfields.ts      track/disc numbers, year, genre names and the other fields tags are turned into
+│   ├── trackmeta.ts      the analysis fields of a library record: defaults, repair, analysis version
+│   ├── pool.ts           bounded-concurrency work queue (order kept, failures isolated, abortable)
 │   ├── reverb.ts         procedural room impulse responses + reverb settings
 │   ├── dsp.ts            shared numeric helpers (clamp, seeded RNG, equal-power mix)
 │   ├── lrc.ts            LRC parser + active-line lookup
@@ -145,8 +157,8 @@ src/
 │   ├── plays.ts          what counts as a play (listening-time tally)
 │   ├── smart.ts          smart playlists (recent / most played / recently played / never played)
 │   ├── share/            listen together: pairing codes, wire protocol, clock sync, drift planning, file streaming, WebRTC peer (lazy chunk)
-│   ├── metadata.ts       File → track (ID3 tags, cover art, lyrics pairing)
-│   └── format.ts         time formatting, procedural fallback artwork
+│   ├── metadata.ts       file helpers (audio/lrc classification, library key), record → track with lazy object URLs
+│   └── format.ts         time and total-length formatting, audio-format badge, procedural fallback artwork
 ├── types.ts              shared domain types (Track, Playlist, Lyrics, PlayerApi, …)
 └── components/
     ├── Playlist.tsx      queue sidebar, search, drag-to-reorder

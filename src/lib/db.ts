@@ -1,4 +1,5 @@
 import type { MetaValues, TrackRecord } from '../types'
+import { normalizeMeta } from './trackmeta'
 
 /** Tiny IndexedDB wrapper: `tracks` (audio blobs + metadata) and `meta` (order, playlists, resume point). */
 const DB_NAME = 'wavelocal'
@@ -53,12 +54,35 @@ export const toRecord = (t: TrackRecord): TrackRecord => ({
   addedAt: t.addedAt || 0,
   plays: t.plays || 0,
   lastPlayedAt: t.lastPlayedAt ?? null,
+  ...normalizeMeta(t),
 })
 
 export const putTracks = (tracks: TrackRecord[]): Promise<void> =>
   run('tracks', 'readwrite', (s) => {
     tracks.forEach((t) => s.put(toRecord(t)))
   })
+/**
+ * Merge a patch into stored records inside one transaction, so a background change can never overwrite what another
+ * part of the app saved in between, and a record that has been removed since stays removed.
+ */
+export const patchTracks = (patches: ReadonlyMap<string, Partial<TrackRecord>>): Promise<void> =>
+  open().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const t = db.transaction('tracks', 'readwrite')
+        const store = t.objectStore('tracks')
+        for (const [id, patch] of patches) {
+          const req = store.get(id)
+          req.onsuccess = () => {
+            const stored = req.result as TrackRecord | undefined
+            if (stored) store.put({ ...stored, ...patch })
+          }
+        }
+        t.oncomplete = () => resolve()
+        t.onerror = () => reject(t.error)
+        t.onabort = () => reject(t.error)
+      }),
+  )
 export const getAllTracks = (): Promise<TrackRecord[]> => run<TrackRecord[]>('tracks', 'readonly', (s) => s.getAll())
 export const deleteTrack = (id: string): Promise<void> => run('tracks', 'readwrite', (s) => s.delete(id))
 export const clearTracks = (): Promise<void> => run('tracks', 'readwrite', (s) => s.clear())

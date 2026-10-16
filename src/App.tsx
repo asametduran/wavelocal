@@ -13,6 +13,7 @@ import Playlist from './components/Playlist'
 import NowPlaying from './components/NowPlaying'
 import NowPlayingSheet from './components/NowPlayingSheet'
 import QueueSheet from './components/QueueSheet'
+import ImportStatus from './components/ImportStatus'
 import LiveRegion, { SkipLinks } from './components/LiveRegion'
 import { lazyPanel, preloadWhenIdle } from './components/lazy'
 import PlayerBar, { MiniBar } from './components/PlayerBar'
@@ -200,11 +201,7 @@ export default function App() {
         </div>
       )}
 
-      {p.loading && (
-        <div className="fixed right-4 top-4 z-[60] flex items-center gap-2 rounded-full bg-raised px-4 py-2 text-sm shadow-lg" role="status">
-          <Loader2 size={16} className="animate-spin text-accent" /> Reading tags…
-        </div>
-      )}
+      <ImportStatus p={p} />
 
       {dragging && (
         <div className="pointer-events-none fixed inset-0 z-[60] grid place-items-center bg-base/80 backdrop-blur-sm">

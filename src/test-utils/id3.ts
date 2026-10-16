@@ -12,6 +12,18 @@ export interface Id3Fields {
   title?: string
   artist?: string
   album?: string
+  /** TPE2. */
+  albumArtist?: string
+  /** TRCK: "3" or "3/12". */
+  track?: string
+  /** TPOS: "1" or "1/2". */
+  disc?: string
+  /** TYER. */
+  year?: string
+  /** TCON, in any of its spellings: "Pop", "(13)", "(13)Pop". */
+  genre?: string
+  /** TCMP (the iTunes compilation flag): "1". */
+  compilation?: string
   /** Value for the replaygain_track_gain TXXX frame, e.g. "-6.50 dB". */
   replayGainTrack?: string
   replayGainAlbum?: string
@@ -78,6 +90,12 @@ export function buildId3v2(fields: Id3Fields): Uint8Array<ArrayBuffer> {
   if (fields.title !== undefined) frames.push(...textFrame('TIT2', fields.title))
   if (fields.artist !== undefined) frames.push(...textFrame('TPE1', fields.artist))
   if (fields.album !== undefined) frames.push(...textFrame('TALB', fields.album))
+  if (fields.albumArtist !== undefined) frames.push(...textFrame('TPE2', fields.albumArtist))
+  if (fields.track !== undefined) frames.push(...textFrame('TRCK', fields.track))
+  if (fields.disc !== undefined) frames.push(...textFrame('TPOS', fields.disc))
+  if (fields.year !== undefined) frames.push(...textFrame('TYER', fields.year))
+  if (fields.genre !== undefined) frames.push(...textFrame('TCON', fields.genre))
+  if (fields.compilation !== undefined) frames.push(...textFrame('TCMP', fields.compilation))
   if (fields.replayGainTrack !== undefined) frames.push(...txxxFrame('replaygain_track_gain', fields.replayGainTrack))
   if (fields.replayGainAlbum !== undefined) frames.push(...txxxFrame('replaygain_album_gain', fields.replayGainAlbum))
   for (const [description, value] of fields.txxx ?? []) frames.push(...txxxFrame(description, value))

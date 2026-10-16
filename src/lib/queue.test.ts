@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { moveItem, nextRepeat, pickTrack, resolveQueue } from './queue'
 import type { PickInput } from './queue'
 import type { Playlist, Track } from '../types'
+import { EMPTY_META } from './trackmeta'
 
 const track = (id: string): Track => ({
   id,
@@ -15,6 +16,7 @@ const track = (id: string): Track => ({
   duration: 0,
   lyrics: null,
   gainDb: null, addedAt: 0, plays: 0, lastPlayedAt: null,
+  ...EMPTY_META,
   url: `blob:${id}`,
   cover: null,
 })

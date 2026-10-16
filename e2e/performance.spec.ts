@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { PlayerPage, wav } from './helpers'
+import { buildMp3 } from '../src/test-utils/containers'
 
 const HUGE = 10_000
 
@@ -105,13 +106,18 @@ test.describe('code splitting', () => {
     return seen
   }
 
-  test('the tag reader is not downloaded until files are imported', async ({ page }) => {
+  test('the analysis code and the tag reader are not downloaded until files are imported', async ({ page }) => {
     const seen = chunkRequests(page)
     const app = new PlayerPage(page)
     await app.open()
-    expect(seen.some((n) => n.startsWith('jsmediatags'))).toBe(false)
+    expect(seen.some((n) => n.startsWith('jsmediatags') || n.startsWith('analyze'))).toBe(false)
     await app.importFiles(wav('tone-440', 'a.wav'))
     await expect(app.rows).toHaveCount(1)
+    // a WAV file's tags are read by the probe itself: the analysis chunk loads, the MP3/MP4 tag reader does not
+    expect(seen.some((n) => n.startsWith('analyze'))).toBe(true)
+    expect(seen.some((n) => n.startsWith('jsmediatags'))).toBe(false)
+    await app.importFiles({ name: 'b.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from(buildMp3({ frames: 50 })) })
+    await expect(app.rows).toHaveCount(2)
     expect(seen.some((n) => n.startsWith('jsmediatags'))).toBe(true)
   })
 

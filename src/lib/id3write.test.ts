@@ -4,7 +4,8 @@ import type { Tags } from 'jsmediatags/dist/jsmediatags.min.js'
 import { audioOffset, decodeTextBody, isMp3, parseId3v2, removeUnsynchronisation, rewriteId3 } from './id3write'
 import { applyTagEdit, cleanField, readCover, resolveFields, sniffImageMime } from './tags'
 import { buildId3v2, withId3 } from '../test-utils/id3'
-import { replayGainDb } from './metadata'
+import { replayGainDb } from './analyze'
+import { EMPTY_META } from './trackmeta'
 import type { TrackRecord } from '../types'
 
 /** MPEG-1 Layer III frame headers repeated over filler, enough for sync detection. */
@@ -261,6 +262,7 @@ describe('applyTagEdit', () => {
     duration: 12,
     lyrics: null,
     gainDb: -2, addedAt: 0, plays: 0, lastPlayedAt: null,
+    ...EMPTY_META,
   })
 
   it('updates the library fields and embeds them in an MP3, keeping identity and metadata', async () => {
