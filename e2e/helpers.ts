@@ -33,6 +33,30 @@ export const lrc = (name: string, lines: readonly (readonly [seconds: number, te
   buffer: Buffer.from(lrcText(lines)),
 })
 
+/**
+ * Import files whose modified time is fixed, so that two devices (or two sessions) end up with the same library key
+ * (`name|size|modified`). `setInputFiles` stamps the current time, which would make every import a different file.
+ */
+export async function importWithMtime(app: { page: Page }, files: readonly Upload[], lastModified: number): Promise<void> {
+  await app.page.evaluate(
+    async ({ items, lastModified }) => {
+      const transfer = new DataTransfer()
+      for (const { name, type, base64 } of items) {
+        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+        transfer.items.add(new File([bytes], name, { type, lastModified }))
+      }
+      const input = document.querySelector<HTMLInputElement>('input[type=file]')
+      if (!input) throw new Error('no file input')
+      input.files = transfer.files
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    },
+    { items: files.map((f) => ({ name: f.name, type: f.mimeType, base64: f.buffer.toString('base64') })), lastModified },
+  )
+}
+
+/** The library key the app gives an uploaded file (see `fileKey` in src/lib/metadata.ts). */
+export const libraryKey = (file: Upload, lastModified: number): string => `${file.name}|${file.buffer.length}|${lastModified}`
+
 /** A very short tone, for tests that need many cheap tracks. */
 export const tone = (name: string, seconds = 0.1, frequency = 440): Upload => ({
   name,

@@ -18,6 +18,7 @@ A modern dark-mode music player that runs entirely in your browser. Your files a
 - **Folder view** — the tree button in the library header browses by the folder structure you imported: keyboard-navigable (arrows, Home/End), searchable, remembers which folders are open, with *Play folder* and *Save as playlist* per folder
 - **ID3 metadata** — title, artist, album and embedded cover art via `jsmediatags`; sleek procedural gradient artwork when a file has none
 - **Smart playlists** — *Recently added*, *Most played*, *Recently played* and *Never played* sit in the library menu and fill themselves. A track counts as played once you have actually heard half of it or 30 seconds (pausing and seeking do not count, so skipping around cannot inflate it); counts and dates live only in your offline library on this device, can be cleared with one button, and a library from before this existed keeps working. A smart list is ordered when you open it and does not reshuffle under you while you listen.
+- **Backup & restore** — Sound & tools → *Backup & restore* exports your playlists, tags, lyrics, play counts, added dates and per-track EQ curves to one JSON file (no audio, no artwork) and restores from one. Restoring is a merge that shows a preview first and never removes anything: matching tracks (same name, size and modified time as the library key) get their tags, lyrics and counters back (counts only ever go up), playlists are merged by id or name, and anything that refers to files you do not have yet is remembered and fills in automatically as those files are added, even after a restart. The file is untrusted input: size-capped, validated field by field, damaged entries skipped and reported.
 - **Queue** — click to play, drag to reorder, remove tracks, live search by title/artist/album
 - **OS integration** — Media Session API (media keys, lock-screen controls)
 - **Responsive** — sidebar on desktop, slide-over queue on mobile
@@ -140,6 +141,7 @@ src/
 │   ├── dsp.ts            shared numeric helpers (clamp, seeded RNG, equal-power mix)
 │   ├── lrc.ts            LRC parser + active-line lookup
 │   ├── db.ts             IndexedDB wrapper (tracks + meta)
+│   ├── backup.ts         library backup/restore: export, validation, merge, pending restore
 │   ├── plays.ts          what counts as a play (listening-time tally)
 │   ├── smart.ts          smart playlists (recent / most played / recently played / never played)
 │   ├── share/            listen together: pairing codes, wire protocol, clock sync, drift planning, file streaming, WebRTC peer (lazy chunk)

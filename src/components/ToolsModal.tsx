@@ -5,6 +5,7 @@ import { ACCENT_PRESETS, DEFAULT_ACCENT } from '../hooks/useTheme'
 import { accentTheme } from '../lib/contrast'
 import type { MotionPref } from '../lib/motion'
 import RovingGroup from './RovingGroup'
+import BackupSection from './BackupSection'
 import DynamicsSection from './DynamicsSection'
 import EqSection from './EqSection'
 import HotkeysSection from './HotkeysSection'
@@ -70,6 +71,8 @@ export default function ToolsModal({ p, open, onClose, accent, setAccent }: Tool
         <ReverbSection p={p} />
 
         <ShareSection />
+
+        <BackupSection p={p} />
 
         <HotkeysSection />
 

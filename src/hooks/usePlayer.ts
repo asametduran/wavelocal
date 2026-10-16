@@ -4,6 +4,8 @@ import * as db from '../lib/db'
 import { estimateGainDb } from '../lib/loudness'
 import { buildTrack, filesToTracks, lrcFromFile, norm, revokeTrack } from '../lib/metadata'
 import { moveItem, nextRepeat, pickTrack, resolveQueue } from '../lib/queue'
+import { buildBackup, normalizePending, planRestore, resolvePending, serializeBackup } from '../lib/backup'
+import type { Backup, PendingRestore, ResolveResult, RestoreSummary } from '../lib/backup'
 import { PlayTally } from '../lib/plays'
 import { isSmartId, smartList, smartTracks } from '../lib/smart'
 import { applyTagEdit } from '../lib/tags'
@@ -80,6 +82,9 @@ export function usePlayer(): PlayerApi {
   // the shared equalizer, plus optional per-track overrides; the curve in effect is derived from the two (see below)
   const [globalBands, setGlobalBands] = useState<EqBand[]>(() => bandsFromSettings(saved))
   const [trackEq, setTrackEq] = useState<Record<string, EqBand[]>>({})
+  /** Parts of a restored backup whose files are not in the library yet; they complete as the files are added. */
+  const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null)
+  const pendingRef = useRef<PendingRestore | null>(null)
   const [eqPresets, setEqPresets] = useState<EqPreset[]>(() => normalizePresets(saved.eqPresets))
   const [eqOn, setEqOn] = useState(saved.eqOn ?? true)
   const [speed, setSpeedState] = useState(clamp(saved.speed ?? 1, 0.5, 2))
@@ -389,6 +394,65 @@ export function usePlayer(): PlayerApi {
     db.putTracks([{ ...latest, ...stamp }]).catch(() => {})
   }, [])
 
+  // ---- backup and restore ----
+  /** Make a merge result real: patch tracks, playlists and curves, remember what is still waiting, and save it all. */
+  const commitRestore = useCallback((r: Pick<ResolveResult, 'patches' | 'trackEq' | 'playlists' | 'pending'>) => {
+    const s = state.current
+    if (r.patches.size) {
+      const changed: Track[] = []
+      const next = s.tracks.map((t) => {
+        const patch = r.patches.get(t.id)
+        if (!patch) return t
+        // the track being played keeps its object (and the URLs its audio element is using); the others are rebuilt
+        // from their plain record so a restore of thousands of tracks does not mint thousands of object URLs
+        const updated = t.id === s.currentId ? { ...t, ...patch } : buildTrack({ ...db.toRecord(t), ...patch })
+        if (t.id !== s.currentId) revokeTrack(t)
+        changed.push(updated)
+        return updated
+      })
+      s.tracks = next
+      setTracks(next)
+      db.putTracks(changed).catch(() => notify('Could not save the restored data (storage blocked or full)'))
+    }
+    setPlaylists(r.playlists)
+    setTrackEq(r.trackEq)
+    pendingRef.current = r.pending
+    setPendingRestore(r.pending)
+  }, [notify])
+
+  /** Complete whatever part of a restored backup the library can satisfy now. Cheap when nothing is pending. */
+  const resolveNow = useCallback(() => {
+    const pending = pendingRef.current
+    if (!pending) return
+    const r = resolvePending(pending, state.current.tracks, state.current.playlists, trackEqRef.current)
+    const progressed = r.patches.size > 0 || r.membersAdded > 0 || r.pending?.tracks.length !== pending.tracks.length || r.pending?.links.length !== pending.links.length
+    if (progressed) commitRestore(r)
+  }, [commitRestore])
+
+  const exportBackup = useCallback(
+    () => serializeBackup(buildBackup(state.current.tracks, state.current.playlists, trackEqRef.current, new Date())),
+    [],
+  )
+
+  const planBackup = useCallback(
+    (backup: Backup) =>
+      planRestore(backup, state.current.tracks, state.current.playlists, trackEqRef.current, pendingRef.current, () => `pl${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`),
+    [],
+  )
+  const previewBackup = useCallback((backup: Backup): RestoreSummary => planBackup(backup).summary, [planBackup])
+  const applyBackup = useCallback(
+    (backup: Backup): RestoreSummary => {
+      const plan = planBackup(backup)
+      commitRestore(plan)
+      return plan.summary
+    },
+    [planBackup, commitRestore],
+  )
+  const discardPendingRestore = useCallback(() => {
+    pendingRef.current = null
+    setPendingRestore(null)
+  }, [])
+
   const resetPlays = useCallback(() => {
     const cleared = state.current.tracks.filter((t) => t.plays || t.lastPlayedAt)
     if (!cleared.length) return
@@ -484,6 +548,7 @@ export function usePlayer(): PlayerApi {
           db.putTracks(added).catch(() => notify('Could not save to the offline library (storage blocked or full)'))
           navigator.storage?.persist?.().catch?.(() => {})
           if (wasEmpty && !state.current.currentId) load(first, false)
+          resolveNow() // files that a restored backup was waiting for may have just arrived
         }
         for (const o of orphanLrc) {
           const n = norm(o.name)
@@ -498,7 +563,7 @@ export function usePlayer(): PlayerApi {
         setLoading(false)
       }
     },
-    [load, notify, updateLyrics],
+    [load, notify, resolveNow, updateLyrics],
   )
 
   const remove = useCallback(
@@ -711,7 +776,7 @@ export function usePlayer(): PlayerApi {
     let alive = true
     ;(async () => {
       try {
-        const [rows, order, pls, resume, storedTrackEq] = await Promise.all([db.getAllTracks(), db.getMeta('order'), db.getMeta('playlists'), db.getMeta('resume'), db.getMeta('trackEq')])
+        const [rows, order, pls, resume, storedTrackEq, storedPending] = await Promise.all([db.getAllTracks(), db.getMeta('order'), db.getMeta('playlists'), db.getMeta('resume'), db.getMeta('trackEq'), db.getMeta('pendingRestore')])
         if (!alive) return
         const ids = Array.isArray(order) ? order : []
         const byId = new Map(rows.map((r) => [r.id, r]))
@@ -737,6 +802,9 @@ export function usePlayer(): PlayerApi {
         const remembered = normalizeTrackEq(storedTrackEq)
         const known = new Set(rows.map((r) => r.id))
         setTrackEq(Object.fromEntries(Object.entries(remembered).filter(([id]) => known.has(id))))
+        const waiting = normalizePending(storedPending)
+        pendingRef.current = waiting
+        setPendingRestore(waiting)
       } catch {
         /* no persistent storage available: run in-memory */
       } finally {
@@ -758,6 +826,13 @@ export function usePlayer(): PlayerApi {
   useEffect(() => {
     if (hydrated) db.setMeta('trackEq', trackEq).catch(() => {})
   }, [hydrated, trackEq])
+  useEffect(() => {
+    if (hydrated) db.setMeta('pendingRestore', pendingRestore).catch(() => {})
+  }, [hydrated, pendingRestore])
+  // a restore that was left waiting last session may be satisfiable now (files were added while it was not loaded)
+  useEffect(() => {
+    if (hydrated) resolveNow()
+  }, [hydrated, resolveNow])
   useEffect(() => {
     if (viewId !== 'all' && !isSmartId(viewId) && !playlists.some((p) => p.id === viewId)) setViewId('all')
   }, [viewId, playlists])
@@ -1053,5 +1128,6 @@ export function usePlayer(): PlayerApi {
     play, toggle, next: () => next(false), prev, seek, position: () => getEl().currentTime, seekBy, setVolume, volumeBy, toggleMute,
     cycleRepeat, toggleShuffle, addFiles, attachLrc, editTags, remove, clear, reorder,
     createPlaylist, addToPlaylist, deletePlaylist, resetPlays,
+    exportBackup, previewBackup, applyBackup, pendingRestoreCount: pendingRestore?.tracks.length ?? 0, discardPendingRestore,
   }
 }

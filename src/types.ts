@@ -1,6 +1,7 @@
 /** Shared domain types for Wavelocal. Type-only: contains no runtime code. */
 import type { Dispatch, SetStateAction } from 'react'
 import type { AudioEngine } from './lib/engine'
+import type { Backup, PendingRestore, RestoreSummary } from './lib/backup'
 import type { TagEdit } from './lib/tags'
 
 /** One lyric line; `t` is the start time in seconds, or null for unsynced (plain) lyrics. */
@@ -307,6 +308,16 @@ export interface PlayerApi {
   deletePlaylist: (id: string) => void
   /** Forget every play count and last-played time (the "most played" lists start over). */
   resetPlays: () => void
+  /** The library's metadata, playlists and play counts (no audio) as the text of a JSON backup file. */
+  exportBackup: () => string
+  /** What restoring `backup` would do, without doing it. */
+  previewBackup: (backup: Backup) => RestoreSummary
+  /** Merge `backup` into the library. Whatever refers to files not in the library yet completes when they are added. */
+  applyBackup: (backup: Backup) => RestoreSummary
+  /** How many tracks from a restored backup are still waiting for their files. */
+  pendingRestoreCount: number
+  /** Give up on the tracks a restore is still waiting for. */
+  discardPendingRestore: () => void
 }
 
 /** Keys and value shapes of the IndexedDB `meta` store. */
@@ -316,4 +327,6 @@ export interface MetaValues {
   resume: ResumePoint | null
   /** Per-track equalizer curves, keyed by track id. */
   trackEq: Record<string, EqBand[]>
+  /** The part of a restored backup still waiting for its files. */
+  pendingRestore: PendingRestore | null
 }

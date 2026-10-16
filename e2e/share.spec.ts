@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import type { Browser, BrowserContext } from '@playwright/test'
-import { PlayerPage, wav } from './helpers'
+import { PlayerPage, importWithMtime, wav } from './helpers'
 
 /** A second device: its own browser context, so its own IndexedDB library (two pages of one context would share it). */
 async function newDevice(browser: Browser, baseURL: string): Promise<{ context: BrowserContext; app: PlayerPage }> {
@@ -21,22 +21,6 @@ async function newDevice(browser: Browser, baseURL: string): Promise<{ context: 
   const app = new PlayerPage(page)
   await app.open()
   return { context, app }
-}
-
-/** Import a file with a fixed modified time, so two devices end up with the same library key (name|size|modified). */
-async function importWithMtime(app: PlayerPage, file: ReturnType<typeof wav>, lastModified: number): Promise<void> {
-  await app.page.evaluate(
-    async ({ name, type, base64, lastModified }) => {
-      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
-      const transfer = new DataTransfer()
-      transfer.items.add(new File([bytes], name, { type, lastModified }))
-      const input = document.querySelector<HTMLInputElement>('input[type=file]')
-      if (!input) throw new Error('no file input')
-      input.files = transfer.files
-      input.dispatchEvent(new Event('change', { bubbles: true }))
-    },
-    { name: file.name, type: file.mimeType, base64: file.buffer.toString('base64'), lastModified },
-  )
 }
 
 const code = (app: PlayerPage, name: RegExp) => app.tools.getByRole('textbox', { name })
@@ -123,8 +107,8 @@ test.describe('listen together', () => {
   test('a guest that already owns the file does not download it again', async () => {
     const song = wav('long', 'shared-song.wav')
     // same name, size and modified time => same library key
-    await importWithMtime(host, song, 1_700_000_000_000)
-    await importWithMtime(guest, song, 1_700_000_000_000)
+    await importWithMtime(host, [song], 1_700_000_000_000)
+    await importWithMtime(guest, [song], 1_700_000_000_000)
     await expect(host.rows).toHaveCount(1)
     await expect(guest.rows).toHaveCount(1)
     await pair(host, guest)
