@@ -104,7 +104,7 @@ describe('filesToTracks', () => {
     const { tracks, orphanLrc } = await filesToTracks([f])
     expect(orphanLrc).toEqual([])
     expect(tracks).toHaveLength(1)
-    expect(tracks[0]).toMatchObject({ title: 'My Song', artist: 'Unknown Artist', album: '', duration: 0, lyrics: null, gainDb: null, cover: null, key: fileKey(f) })
+    expect(tracks[0]).toMatchObject({ title: 'My Song', artist: 'Unknown Artist', album: '', duration: 0, lyrics: null, gainDb: null, addedAt: expect.any(Number), plays: 0, lastPlayedAt: null, cover: null, key: fileKey(f) })
     expect(tracks[0]?.id).toMatch(/^t[a-z0-9]+$/)
     expect(tracks[0]?.url).toMatch(/^blob:mock-/)
   })
@@ -118,7 +118,7 @@ describe('filesToTracks', () => {
       TXXX: { data: { user_description: 'replaygain_track_gain', data: '-4.2 dB' } },
     })
     const [t] = (await filesToTracks([audio('x.mp3')])).tracks
-    expect(t).toMatchObject({ title: 'Real Title', artist: 'Real Artist', album: 'Album', gainDb: -4.2 })
+    expect(t).toMatchObject({ title: 'Real Title', artist: 'Real Artist', album: 'Album', gainDb: -4.2, addedAt: expect.any(Number), plays: 0, lastPlayedAt: null })
     expect(t?.coverBlob?.type).toBe('image/png')
     expect(t?.cover).toMatch(/^blob:mock-/)
   })
@@ -218,8 +218,10 @@ describe('folder paths', () => {
 
   it('treats records saved before the folder view as loose files', () => {
     const legacy = { id: 't1', key: 'k', file: audio('a.mp3'), coverBlob: null, title: 'A', artist: 'B', album: '', duration: 0, lyrics: null, gainDb: null }
-    // @ts-expect-error old IndexedDB rows have no `path`
-    expect(buildTrack(legacy).path).toBe('')
+    // @ts-expect-error old IndexedDB rows have no `path`, dates or play counts
+    const track = buildTrack(legacy)
+    expect(track.path).toBe('')
+    expect(track).toMatchObject({ addedAt: 0, plays: 0, lastPlayedAt: null })
   })
 })
 
@@ -235,7 +237,7 @@ describe('buildTrack / revokeTrack', () => {
     album: '',
     duration: 0,
     lyrics: null,
-    gainDb: null,
+    gainDb: null, addedAt: 0, plays: 0, lastPlayedAt: null,
   }
 
   it('adds an object URL for the audio and none for missing artwork', () => {

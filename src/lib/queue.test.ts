@@ -14,7 +14,7 @@ const track = (id: string): Track => ({
   album: '',
   duration: 0,
   lyrics: null,
-  gainDb: null,
+  gainDb: null, addedAt: 0, plays: 0, lastPlayedAt: null,
   url: `blob:${id}`,
   cover: null,
 })

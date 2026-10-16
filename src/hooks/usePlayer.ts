@@ -4,6 +4,8 @@ import * as db from '../lib/db'
 import { estimateGainDb } from '../lib/loudness'
 import { buildTrack, filesToTracks, lrcFromFile, norm, revokeTrack } from '../lib/metadata'
 import { moveItem, nextRepeat, pickTrack, resolveQueue } from '../lib/queue'
+import { PlayTally } from '../lib/plays'
+import { isSmartId, smartList, smartTracks } from '../lib/smart'
 import { applyTagEdit } from '../lib/tags'
 import type { TagEdit } from '../lib/tags'
 import { PlayableResolver, createWorkerConvert } from '../lib/audio/playable'
@@ -109,6 +111,8 @@ export function usePlayer(): PlayerApi {
   const playIntent = useRef(false)
   /** Consecutive tracks that failed to play, so a queue of unplayable files cannot loop forever. */
   const failStreak = useRef(0)
+  /** Decides when listening counts as a play (half the track or 30 s of real listening). */
+  const tally = useRef(new PlayTally())
   /** Set after `next` exists; used where `load` has to skip an unplayable track. */
   const skipUnplayable = useRef<() => void>(() => {})
   const state = useRef<Snapshot>({
@@ -124,7 +128,20 @@ export function usePlayer(): PlayerApi {
     hydrated: false,
   })
 
-  const queue = useMemo(() => resolveQueue(tracks, playlists, viewId), [tracks, playlists, viewId])
+  // A smart list is ordered once, when it is opened (or when tracks are added/removed), and not on every play count:
+  // otherwise the row you are listening to would jump around under you each time a play is recorded.
+  const smartIds = useMemo(() => {
+    const list = smartList(viewId)
+    return list ? smartTracks(list.kind, tracks).map((t) => t.id) : null
+  }, [viewId, tracks.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  const queue = useMemo(() => {
+    if (!smartIds) return resolveQueue(tracks, playlists, viewId)
+    const byId = new Map(tracks.map((t) => [t.id, t]))
+    return smartIds.flatMap((id) => {
+      const t = byId.get(id)
+      return t ? [t] : []
+    })
+  }, [tracks, playlists, viewId, smartIds])
 
   state.current = { ...state.current, tracks, queue, playlists, viewId, currentId: state.current.currentId ?? currentId, repeat, shuffle, transition, normalize, hydrated }
   const current = useMemo(() => tracks.find((t) => t.id === currentId) || null, [tracks, currentId])
@@ -356,11 +373,28 @@ export function usePlayer(): PlayerApi {
       const el = getEl()
       if (!Number.isFinite(el.duration)) return
       el.currentTime = clamp(t, 0, el.duration)
+      tally.current.jumped() // a seek is not listening
       setTime(el.currentTime)
     },
     [getEl],
   )
   const seekBy = useCallback((d: number) => seek(getEl().currentTime + d), [getEl, seek])
+
+  /** A play has been earned: bump the counter in memory and in the offline library. */
+  const recordPlay = useCallback((id: string) => {
+    const latest = state.current.tracks.find((t) => t.id === id)
+    if (!latest) return
+    const stamp = { plays: (latest.plays || 0) + 1, lastPlayedAt: Date.now() }
+    setTracks((l) => l.map((t) => (t.id === id ? { ...t, ...stamp } : t)))
+    db.putTracks([{ ...latest, ...stamp }]).catch(() => {})
+  }, [])
+
+  const resetPlays = useCallback(() => {
+    const cleared = state.current.tracks.filter((t) => t.plays || t.lastPlayedAt)
+    if (!cleared.length) return
+    setTracks((l) => l.map((t) => (t.plays || t.lastPlayedAt ? { ...t, plays: 0, lastPlayedAt: null } : t)))
+    db.putTracks(cleared.map((t) => ({ ...t, plays: 0, lastPlayedAt: null }))).catch(() => notify('Could not save the reset (storage blocked or full)'))
+  }, [notify])
 
   const setVolume = useCallback((v: number) => {
     const nv = clamp(v, 0, 1)
@@ -725,7 +759,7 @@ export function usePlayer(): PlayerApi {
     if (hydrated) db.setMeta('trackEq', trackEq).catch(() => {})
   }, [hydrated, trackEq])
   useEffect(() => {
-    if (viewId !== 'all' && !playlists.some((p) => p.id === viewId)) setViewId('all')
+    if (viewId !== 'all' && !isSmartId(viewId) && !playlists.some((p) => p.id === viewId)) setViewId('all')
   }, [viewId, playlists])
   useEffect(() => {
     saveResume()
@@ -762,6 +796,7 @@ export function usePlayer(): PlayerApi {
       const el = getEl()
       setTime(el.currentTime)
       const s = state.current
+      if (s.currentId && tally.current.observe(s.currentId, el.currentTime, el.duration, !el.paused)) recordPlay(s.currentId)
       const mode = s.transition
       if (mode === 'off' || s.repeat === 'one' || !Number.isFinite(el.duration)) return
       const x = xfade.current
@@ -832,6 +867,9 @@ export function usePlayer(): PlayerApi {
     }
     const onEnd = (e: Event) => {
       if (!isActive(e)) return
+      const endedId = state.current.currentId
+      if (endedId && tally.current.finish(getEl().duration)) recordPlay(endedId)
+      tally.current.begin(null) // whatever plays next (even the same track again) is a new listen
       if (state.current.repeat === 'one') {
         const el = getEl()
         el.currentTime = 0
@@ -891,7 +929,7 @@ export function usePlayer(): PlayerApi {
         el.removeEventListener('error', onErr)
       })
     }
-  }, [engine, getEl, next, pickNext, beginTransition, saveResume, startPlay, applyNorm, resolver])
+  }, [engine, getEl, next, pickNext, beginTransition, saveResume, startPlay, applyNorm, resolver, recordPlay])
 
   // toggling normalization re-applies (or clears) the gain on the active deck
   useEffect(() => {
@@ -1014,6 +1052,6 @@ export function usePlayer(): PlayerApi {
     loading, notice, hydrated, decoding,
     play, toggle, next: () => next(false), prev, seek, position: () => getEl().currentTime, seekBy, setVolume, volumeBy, toggleMute,
     cycleRepeat, toggleShuffle, addFiles, attachLrc, editTags, remove, clear, reorder,
-    createPlaylist, addToPlaylist, deletePlaylist,
+    createPlaylist, addToPlaylist, deletePlaylist, resetPlays,
   }
 }

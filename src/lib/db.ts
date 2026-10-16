@@ -50,6 +50,9 @@ export const toRecord = (t: TrackRecord): TrackRecord => ({
   duration: t.duration || 0,
   lyrics: t.lyrics || null,
   gainDb: t.gainDb ?? null,
+  addedAt: t.addedAt || 0,
+  plays: t.plays || 0,
+  lastPlayedAt: t.lastPlayedAt ?? null,
 })
 
 export const putTracks = (tracks: TrackRecord[]): Promise<void> =>

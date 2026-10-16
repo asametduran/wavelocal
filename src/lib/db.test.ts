@@ -15,7 +15,7 @@ const base: TrackRecord = {
   album: 'C',
   duration: 12.5,
   lyrics: { synced: true, lines: [{ t: 1, text: 'x' }] },
-  gainDb: -3.5,
+  gainDb: -3.5, addedAt: 0, plays: 0, lastPlayedAt: null,
 }
 
 describe('toRecord', () => {
@@ -26,18 +26,18 @@ describe('toRecord', () => {
   it('drops in-memory object URLs and any other extra fields', () => {
     const track: Track & { selected: boolean } = { ...base, url: 'blob:abc', cover: 'blob:def', selected: true }
     const record = toRecord(track)
-    expect(Object.keys(record).sort()).toEqual(['album', 'artist', 'coverBlob', 'duration', 'file', 'gainDb', 'id', 'key', 'lyrics', 'path', 'title'])
+    expect(Object.keys(record).sort()).toEqual(['addedAt', 'album', 'artist', 'coverBlob', 'duration', 'file', 'gainDb', 'id', 'key', 'lastPlayedAt', 'lyrics', 'path', 'plays', 'title'])
     expect(record).not.toHaveProperty('url')
     expect(record).not.toHaveProperty('cover')
   })
 
   it('normalizes missing optional values', () => {
-    const sparse = { ...base, duration: 0, lyrics: null, gainDb: null }
-    expect(toRecord(sparse)).toMatchObject({ duration: 0, lyrics: null, gainDb: null, coverBlob: null })
+    const sparse = { ...base, duration: 0, lyrics: null, gainDb: null, addedAt: 0, plays: 0, lastPlayedAt: null }
+    expect(toRecord(sparse)).toMatchObject({ duration: 0, lyrics: null, gainDb: null, addedAt: 0, plays: 0, lastPlayedAt: null, coverBlob: null })
   })
 
   it('preserves a measured gain of exactly 0 dB (not treated as missing)', () => {
-    expect(toRecord({ ...base, gainDb: 0 }).gainDb).toBe(0)
+    expect(toRecord({ ...base, gainDb: 0, addedAt: 0, plays: 0, lastPlayedAt: null }).gainDb).toBe(0)
   })
 
   it('keeps the cover blob', () => {

@@ -35,7 +35,9 @@ test.describe('playlists', () => {
   test('cancelling the name prompt creates nothing', async () => {
     app.answerNextDialog(false)
     await app.viewSelect.selectOption('__new')
-    await expect(app.viewSelect.locator('option')).toHaveCount(2) // Library + "New playlist…"
+    // Library + the four smart playlists + "New playlist…", and no playlist of the user's own
+    await expect(app.viewSelect.locator('option')).toHaveCount(6)
+    await expect(app.viewSelect.locator('option', { hasText: /\(\d+\)/ })).toHaveCount(5)
   })
 
   test('adds tracks from the library and shows them in the playlist', async () => {

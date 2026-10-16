@@ -6,6 +6,7 @@ import { Deferred, lazyRetry, preloadWhenIdle } from './lazy'
 import { useRovingKeys } from '../hooks/useA11y'
 import { announce, matchAnnouncement, moveAnnouncement } from '../lib/a11y'
 import { formatTime } from '../lib/format'
+import { SMART_LISTS, smartCounts, smartDetail, smartList } from '../lib/smart'
 import type { PlayerApi } from '../types'
 
 // Code for the folder tree and the tag editor is only fetched when a folder view or an edit is first asked for.
@@ -89,7 +90,12 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
     }
   }
 
-  const inPlaylist = p.viewId !== 'all'
+  const smart = smartList(p.viewId)
+  /** A smart list is a read-only view: it sorts itself, so its rows cannot be dragged or taken out. */
+  const inPlaylist = p.viewId !== 'all' && !smart
+  const smartCount = useMemo(() => smartCounts(p.tracks), [p.tracks])
+  const anyPlays = useMemo(() => p.tracks.some((t) => t.plays > 0 || t.lastPlayedAt != null), [p.tracks])
+  const now = Date.now()
   const playlist = p.playlists.find((x) => x.id === p.viewId)
   const q = query.trim().toLowerCase()
   const rows = useMemo(
@@ -136,7 +142,12 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
   }
 
   const onDelete = () => {
-    if (inPlaylist) {
+    if (smart) {
+      if (window.confirm('Start the play counts over? "Most played" and "Recently played" begin again. Your music is not touched.')) {
+        p.resetPlays()
+        announce('Play counts cleared')
+      }
+    } else if (inPlaylist) {
       if (window.confirm(`Delete playlist "${playlist?.name}"? Your tracks stay in the library.`)) p.deletePlaylist(p.viewId)
     } else if (window.confirm('Remove every track from your library? This clears the offline copy too.')) p.clear()
   }
@@ -175,7 +186,7 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
 
   /** Alt+Up / Alt+Down on a track moves it in the queue: the keyboard alternative to dragging. */
   const onRowKey = (e: ReactKeyboardEvent<HTMLButtonElement>, index: number, title: string, id: string) => {
-    if (!e.altKey || q || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
+    if (!e.altKey || q || smart || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
     e.preventDefault()
     const to = e.key === 'ArrowUp' ? index - 1 : index + 1
     if (to < 0 || to >= rows.length) return
@@ -195,6 +206,13 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
             className="w-full truncate rounded-lg bg-transparent py-1 text-sm font-semibold uppercase tracking-wider text-zinc-300 outline-none hover:bg-white/5"
           >
             <option value="all" className="bg-panel normal-case">Library ({p.tracks.length})</option>
+            <optgroup label="Smart playlists" className="bg-panel">
+              {SMART_LISTS.map((l) => (
+                <option key={l.id} value={l.id} className="bg-panel normal-case">
+                  {l.name} ({smartCount[l.kind]})
+                </option>
+              ))}
+            </optgroup>
             {p.playlists.map((pl) => (
               <option key={pl.id} value={pl.id} className="bg-panel normal-case">
                 {pl.name} ({pl.trackIds.length})
@@ -224,11 +242,19 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
               <Tv size={16} />
             </button>
           )}
-          <button onClick={onDelete} disabled={!inPlaylist && !p.tracks.length} className={`${headBtn} hover:!text-red-400 disabled:opacity-30`} aria-label={inPlaylist ? 'Delete playlist' : 'Clear library'} title={inPlaylist ? 'Delete playlist' : 'Clear library'}>
+          <button
+            onClick={onDelete}
+            disabled={smart ? !anyPlays : !inPlaylist && !p.tracks.length}
+            className={`${headBtn} hover:!text-red-400 disabled:opacity-30`}
+            aria-label={smart ? 'Clear play counts' : inPlaylist ? 'Delete playlist' : 'Clear library'}
+            title={smart ? 'Clear play counts' : inPlaylist ? 'Delete playlist' : 'Clear library'}
+          >
             <Trash2 size={16} />
           </button>
         </div>
       </div>
+
+      {smart && <p className="px-4 pb-2 text-xs text-zinc-400">{smart.description}</p>}
 
       <div role="search" aria-label={`Search ${label.toLowerCase()}`} className="px-4 pb-3">
         <label className="flex items-center gap-2 rounded-lg bg-raised px-3 py-2 focus-within:ring-1 focus-within:ring-accent">
@@ -255,7 +281,7 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
           <FolderTree p={p} query={query} onEdit={(id) => (setMenuFor(null), setEditingId(id))} />
         </Deferred>
       ) : (
-      <ul ref={listRef} aria-label={inPlaylist ? `Tracks in ${playlist?.name ?? 'playlist'}` : 'Library tracks'} onScroll={(e: UIEvent<HTMLUListElement>) => {
+      <ul ref={listRef} aria-label={smart ? `${smart.name} smart playlist` : inPlaylist ? `Tracks in ${playlist?.name ?? 'playlist'}` : 'Library tracks'} onScroll={(e: UIEvent<HTMLUListElement>) => {
           setScrollTop(e.currentTarget.scrollTop)
           if (e.currentTarget.clientHeight > 0) setViewH(e.currentTarget.clientHeight)
         }} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
@@ -269,7 +295,7 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
               style={{ height: ROW_H }}
               aria-setsize={rows.length}
               aria-posinset={start + i + 1}
-              draggable={!q}
+              draggable={!q && !smart}
               onDragStart={(e) => {
                 setDragFrom(index)
                 e.dataTransfer.effectAllowed = 'move'
@@ -288,14 +314,14 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
               onDragEnd={() => (setDragFrom(null), setDragOver(null))}
               className={`group relative flex items-center gap-2 rounded-lg px-2 transition ${active ? 'bg-white/10' : 'hover:bg-white/5'} ${dragOver === index && dragFrom !== index ? 'ring-1 ring-accent' : ''} ${dragFrom === index ? 'opacity-40' : ''}`}
             >
-              {!q && <GripVertical size={14} aria-hidden="true" className="shrink-0 cursor-grab text-zinc-400 group-hover:text-zinc-300" />}
+              {!q && !smart && <GripVertical size={14} aria-hidden="true" className="shrink-0 cursor-grab text-zinc-400 group-hover:text-zinc-300" />}
               <button
                 onClick={() => p.play(t.id)}
                 onKeyDown={(e) => onRowKey(e, index, t.title, t.id)}
                 data-track={t.id}
                 className="flex min-w-0 flex-1 items-center gap-3 text-left"
                 aria-current={active}
-                aria-keyshortcuts={q ? undefined : 'Alt+ArrowUp Alt+ArrowDown'}
+                aria-keyshortcuts={q || smart ? undefined : 'Alt+ArrowUp Alt+ArrowDown'}
               >
                 <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded">
                   <Cover track={t} className="h-full w-full" iconSize={14} />
@@ -303,7 +329,10 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
                 </div>
                 <div className="min-w-0">
                   <div className={`truncate text-sm ${active ? 'font-semibold text-accent' : ''}`}>{t.title}</div>
-                  <div className="truncate text-xs text-zinc-400">{t.artist}</div>
+                  <div className="truncate text-xs text-zinc-400">
+                    {t.artist}
+                    {smart && smartDetail(smart.kind, t, now) ? ` · ${smartDetail(smart.kind, t, now)}` : ''}
+                  </div>
                 </div>
               </button>
               <span className="shrink-0 text-xs tabular-nums text-zinc-400">{t.duration ? formatTime(t.duration) : ''}</span>
@@ -313,9 +342,11 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
               <button onClick={() => setMenuFor(menuFor === t.id ? null : t.id)} data-menu-trigger={t.id} className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-zinc-400 opacity-0 transition hover:bg-white/10 hover:text-white focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100" aria-label={`Add ${t.title} to playlist`} aria-haspopup="menu" aria-expanded={menuFor === t.id}>
                 <ListPlus size={15} />
               </button>
-              <button onClick={() => p.remove(t.id)} className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-zinc-400 opacity-0 transition hover:bg-white/10 hover:text-red-400 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100" aria-label={`Remove ${t.title}`}>
-                <X size={14} />
-              </button>
+              {!smart && (
+                <button onClick={() => p.remove(t.id)} className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-zinc-400 opacity-0 transition hover:bg-white/10 hover:text-red-400 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100" aria-label={`Remove ${t.title}`}>
+                  <X size={14} />
+                </button>
+              )}
               {menuFor === t.id && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => closeMenu(false)} aria-hidden="true" />
@@ -339,10 +370,12 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
           <li className="flex flex-col items-center gap-4 px-4 py-10 text-center text-sm text-zinc-400">
             {p.queue.length
               ? 'No tracks match your search.'
-              : inPlaylist
+              : smart
+                ? smart.empty
+                : inPlaylist
                 ? 'This playlist is empty. Use the + button on any library track to add it.'
                 : 'Your library is empty. Add some music — it stays on your device and is remembered next time.'}
-            {!p.queue.length && !inPlaylist && (
+            {!p.queue.length && !inPlaylist && !smart && (
               <div className="flex gap-2">
                 <button onClick={onPickFiles} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black">Add files</button>
                 <button onClick={onPickFolder} className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white">Add folder</button>

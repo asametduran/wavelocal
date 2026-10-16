@@ -17,6 +17,7 @@ A modern dark-mode music player that runs entirely in your browser. Your files a
 - **Load music** — drag & drop anywhere on the window (whole folders included), pick files, or pick a whole folder
 - **Folder view** — the tree button in the library header browses by the folder structure you imported: keyboard-navigable (arrows, Home/End), searchable, remembers which folders are open, with *Play folder* and *Save as playlist* per folder
 - **ID3 metadata** — title, artist, album and embedded cover art via `jsmediatags`; sleek procedural gradient artwork when a file has none
+- **Smart playlists** — *Recently added*, *Most played*, *Recently played* and *Never played* sit in the library menu and fill themselves. A track counts as played once you have actually heard half of it or 30 seconds (pausing and seeking do not count, so skipping around cannot inflate it); counts and dates live only in your offline library on this device, can be cleared with one button, and a library from before this existed keeps working. A smart list is ordered when you open it and does not reshuffle under you while you listen.
 - **Queue** — click to play, drag to reorder, remove tracks, live search by title/artist/album
 - **OS integration** — Media Session API (media keys, lock-screen controls)
 - **Responsive** — sidebar on desktop, slide-over queue on mobile
@@ -139,6 +140,8 @@ src/
 │   ├── dsp.ts            shared numeric helpers (clamp, seeded RNG, equal-power mix)
 │   ├── lrc.ts            LRC parser + active-line lookup
 │   ├── db.ts             IndexedDB wrapper (tracks + meta)
+│   ├── plays.ts          what counts as a play (listening-time tally)
+│   ├── smart.ts          smart playlists (recent / most played / recently played / never played)
 │   ├── share/            listen together: pairing codes, wire protocol, clock sync, drift planning, file streaming, WebRTC peer (lazy chunk)
 │   ├── metadata.ts       File → track (ID3 tags, cover art, lyrics pairing)
 │   └── format.ts         time formatting, procedural fallback artwork

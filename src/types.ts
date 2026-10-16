@@ -30,6 +30,12 @@ export interface TrackRecord {
   lyrics: Lyrics | null
   /** ReplayGain / measured loudness correction in dB, or null when unknown. */
   gainDb: number | null
+  /** When the track was added to the library (ms since the epoch); 0 for tracks imported before this was recorded. */
+  addedAt: number
+  /** How many times it has been played (see `lib/plays.ts` for what counts); stored on this device only. */
+  plays: number
+  /** When it last counted as played (ms since the epoch), or null if never. */
+  lastPlayedAt: number | null
 }
 
 /** A track in memory: the record plus object URLs for the audio element and artwork. */
@@ -299,6 +305,8 @@ export interface PlayerApi {
   createPlaylist: (name?: string, trackIds?: string[]) => string
   addToPlaylist: (playlistId: string, trackId: string) => void
   deletePlaylist: (id: string) => void
+  /** Forget every play count and last-played time (the "most played" lists start over). */
+  resetPlays: () => void
 }
 
 /** Keys and value shapes of the IndexedDB `meta` store. */

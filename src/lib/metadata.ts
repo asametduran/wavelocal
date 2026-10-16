@@ -80,7 +80,8 @@ const minted = new WeakMap<object, MintedUrls>()
  */
 export function buildTrack(rec: TrackRecord): Track {
   const made: MintedUrls = {}
-  const track = { ...rec, path: cleanFolderPath(rec.path) } as Track // records saved before the folder view have no path
+  // records saved before the folder view / play counts existed lack those fields
+  const track = { ...rec, path: cleanFolderPath(rec.path), addedAt: rec.addedAt || 0, plays: rec.plays || 0, lastPlayedAt: rec.lastPlayedAt ?? null } as Track
   Object.defineProperties(track, {
     url: {
       enumerable: true,
@@ -124,6 +125,9 @@ async function fileToTrack(file: File, lrcMap: ReadonlyMap<string, Lyrics>): Pro
     duration: 0,
     lyrics,
     gainDb: replayGainDb(tags),
+    addedAt: Date.now(),
+    plays: 0,
+    lastPlayedAt: null,
   })
 }
 

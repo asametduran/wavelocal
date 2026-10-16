@@ -260,7 +260,7 @@ describe('applyTagEdit', () => {
     album: 'Old LP',
     duration: 12,
     lyrics: null,
-    gainDb: -2,
+    gainDb: -2, addedAt: 0, plays: 0, lastPlayedAt: null,
   })
 
   it('updates the library fields and embeds them in an MP3, keeping identity and metadata', async () => {
@@ -268,7 +268,7 @@ describe('applyTagEdit', () => {
     const res = await applyTagEdit(src, { title: '  New  Title ', artist: 'Band', album: 'LP' })
     expect(res.embedded).toBe(true)
     expect(res.coverChanged).toBe(false)
-    expect(res.record).toMatchObject({ id: 't1', key: src.key, title: 'New Title', artist: 'Band', album: 'LP', duration: 12, gainDb: -2 })
+    expect(res.record).toMatchObject({ id: 't1', key: src.key, title: 'New Title', artist: 'Band', album: 'LP', duration: 12, gainDb: -2, addedAt: 0, plays: 0, lastPlayedAt: null })
     expect(res.record.file.name).toBe('song.mp3')
     expect(res.record.file.lastModified).toBe(7)
     expect(res.record.coverBlob).toBe(src.coverBlob)
