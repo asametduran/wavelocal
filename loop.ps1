@@ -15,7 +15,8 @@ param(
   [int]$FailurePauseSeconds = 60,        # pause after a failed (non rate-limit) session
   [int]$MaxConsecutiveFailures = 5,      # circuit breaker: this many failures in a row -> long backoff
   [int]$MaxNoCommitRuns = 3,             # circuit breaker: this many "ok but pushed nothing" runs in a row -> long backoff
-  [int]$StuckBackoffSeconds = 1800       # long backoff (30 min) used by both circuit breakers
+  [int]$StuckBackoffSeconds = 1800,      # long backoff (30 min) used by both circuit breakers
+  [string]$Effort = 'max'                # reasoning effort passed to every session (low|medium|high|xhigh|max)
 )
 
 $ErrorActionPreference = 'Continue'
@@ -26,6 +27,7 @@ $errFile = Join-Path $PSScriptRoot 'evolution-last-run.err'
 $stopFile = Join-Path $PSScriptRoot 'STOP'
 $pidFile = Join-Path $PSScriptRoot 'loop.pid'
 $beatFile = Join-Path $PSScriptRoot 'loop.heartbeat'
+$resumeFile = Join-Path $PSScriptRoot 'resume-at.txt'   # optional: local time (yyyy-MM-dd HH:mm:ss) before which the loop only sleeps
 
 function Write-Log([string]$msg) {
   "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $msg" | Out-File -FilePath $log -Append -Encoding utf8
@@ -35,7 +37,7 @@ function Write-Beat([string]$state) {
 }
 
 # Heavy-scope prompt. No double quotes or apostrophes inside: it is passed as one quoted argument.
-$prompt = 'You are the autonomous engineering team for Wavelocal, a local-first React/Vite PWA and Capacitor Android music player. Read ROADMAP.md. Take the FIRST unchecked milestone in the HYPERCODE packs (A, then B, C, D) and deliver it completely as deep, production-quality engineering: multiple files, strict types where applicable, and tests where a test runner exists. Do not pick small tweaks. Run git status first; if a previous run left unfinished work, finish or cleanly revert only that work. Keep every existing feature working and the app local-first and privacy-first. Before every push verify that npm run build exits 0 (and npm run typecheck and npm test once they exist); fix failures instead of skipping them. If a milestone is truly blocked, revert partial work, record the blocker in ROADMAP.md and move to the next milestone. After each verified milestone: tick its box, add one Changelog line, commit with a conventional message, run git pull --rebase origin main, then git push origin main. You may complete several consecutive milestones in this session as long as each one is verified and pushed. Pushing triggers the Android APK build automatically.'
+$prompt = 'You are the autonomous engineering team for Wavelocal, a local-first React/Vite PWA and Capacitor Android music player. Read ROADMAP.md. Take the FIRST unchecked milestone in the HYPERCODE packs (A, then B, C, D, then any later packs) and deliver it completely as deep, production-quality engineering: multiple files, strict types where applicable, and tests where a test runner exists. Do not pick small tweaks. If every milestone in ROADMAP.md is already ticked, do not stop: perform a deep audit of the codebase (correctness, security, performance, accessibility, UX, test coverage, bundle size), append a new Pack with 3 to 5 heavy milestones to ROADMAP.md, commit that, then deliver its first milestone. Run git status first; if a previous run left unfinished work, finish or cleanly revert only that work. Keep every existing feature working and the app local-first and privacy-first. Before every push verify that npm run build exits 0 (and npm run typecheck and npm test once they exist); fix failures instead of skipping them. If a milestone is truly blocked, revert partial work, record the blocker in ROADMAP.md and move to the next milestone. After each verified milestone: tick its box, add one Changelog line, commit with a conventional message, run git pull --rebase origin main, then git push origin main. You may complete several consecutive milestones in this session as long as each one is verified and pushed. Pushing triggers the Android APK build automatically.'
 
 # Single-instance guard: a second copy (e.g. Startup entry + manual launch) exits immediately.
 $script:instanceLock = New-Object System.Threading.Mutex($false, 'Local\WavelocalEvolutionLoop')
@@ -58,6 +60,29 @@ function Wait-Interruptible([int]$seconds, [string]$state) {
   }
 }
 
+# Scheduled pause: while resume-at.txt names a future time, do nothing (no sessions, no commits, no tokens).
+# The file survives restarts and reboots; it is deleted once the time has passed.
+function Wait-ForResume {
+  if (-not (Test-Path -LiteralPath $resumeFile)) { return }
+  $t = [datetime]::MinValue
+  $txt = ([string](Get-Content -LiteralPath $resumeFile -Raw -ErrorAction SilentlyContinue)).Trim()
+  if (-not [datetime]::TryParse($txt, [ref]$t)) {
+    Write-Log "resume-at.txt is not a valid time ('$txt') - ignoring and removing it"
+    Remove-Item -LiteralPath $resumeFile -ErrorAction SilentlyContinue
+    return
+  }
+  if ($t -gt (Get-Date)) {
+    Write-Log "paused until $($t.ToString('yyyy-MM-dd HH:mm:ss')) (resume-at.txt) - sleeping, no sessions will run"
+    while ((Get-Date) -lt $t) {
+      if (Test-Path -LiteralPath $stopFile) { return }
+      Write-Beat "PAUSED until $($t.ToString('yyyy-MM-dd HH:mm:ss'))"
+      Start-Sleep -Seconds ([math]::Min(30, [math]::Max(1, [int]($t - (Get-Date)).TotalSeconds)))
+    }
+  }
+  Remove-Item -LiteralPath $resumeFile -ErrorAction SilentlyContinue
+  Write-Log 'resume time reached - resuming the HYPERCODE loop'
+}
+
 # One headless session. Returns @{ Status; RateLimited; NewCommit }.
 function Invoke-Run {
   $script:runNo++
@@ -71,7 +96,7 @@ function Invoke-Run {
   $started = Get-Date
   try {
     $p = Start-Process -FilePath $claude `
-      -ArgumentList @('-p', "`"$prompt`"", '--dangerously-skip-permissions', '--output-format', 'json') `
+      -ArgumentList @('-p', "`"$prompt`"", '--dangerously-skip-permissions', '--output-format', 'json', '--effort', $Effort) `
       -WorkingDirectory $PSScriptRoot -NoNewWindow -PassThru `
       -RedirectStandardOutput $lastRun -RedirectStandardError $errFile
     $null = $p.Handle   # cache the process handle, otherwise ExitCode is $null in Windows PowerShell 5.1
@@ -90,8 +115,9 @@ function Invoke-Run {
 
   # Parse the JSON result so token usage / cost / turns land in the log.
   $text = ''
-  $raw = if (Test-Path $lastRun) { Get-Content $lastRun -Raw -Encoding UTF8 -ErrorAction SilentlyContinue } else { '' }
-  $err = if (Test-Path $errFile) { Get-Content $errFile -Raw -Encoding UTF8 -ErrorAction SilentlyContinue } else { '' }
+  # [string] cast: Get-Content -Raw returns an empty object[] (not a string) for a 0-byte file such as an empty stderr capture
+  $raw = if (Test-Path $lastRun) { [string](Get-Content $lastRun -Raw -Encoding UTF8 -ErrorAction SilentlyContinue) } else { '' }
+  $err = if (Test-Path $errFile) { [string](Get-Content $errFile -Raw -Encoding UTF8 -ErrorAction SilentlyContinue) } else { '' }
   try {
     $j = $raw | ConvertFrom-Json -ErrorAction Stop
     $text = [string]$j.result
@@ -126,6 +152,8 @@ try {
   $noCommit = 0
 
   while ($true) {
+    if (Test-Path -LiteralPath $stopFile) { Write-Log 'STOP file found - loop exiting'; break }
+    Wait-ForResume
     if (Test-Path -LiteralPath $stopFile) { Write-Log 'STOP file found - loop exiting'; break }
     try {
       $r = Invoke-Run
