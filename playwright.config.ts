@@ -24,7 +24,16 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     // the PWA service worker would cache between tests and hide regressions
     serviceWorkers: 'block',
-    launchOptions: { args: ['--autoplay-policy=no-user-gesture-required', '--mute-audio'] },
+    launchOptions: {
+      args: [
+        '--autoplay-policy=no-user-gesture-required',
+        '--mute-audio',
+        // two test browsers on one machine must be able to find each other: show raw LAN addresses instead of
+        // mDNS names, and allow the loopback interface (the real app offers neither because it never needs to)
+        '--disable-features=WebRtcHideLocalIpsWithMdns',
+        '--allow-loopback-in-peer-connection',
+      ],
+    },
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } }],
   webServer: {

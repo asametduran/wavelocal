@@ -277,6 +277,8 @@ export interface PlayerApi {
   next: () => void
   prev: () => void
   seek: (seconds: number) => void
+  /** The exact playhead in seconds, read from the audio element (`time` only updates a few times a second). */
+  position: () => number
   seekBy: (delta: number) => void
   setVolume: (v: number) => void
   volumeBy: (delta: number) => void

@@ -1012,7 +1012,7 @@ export function usePlayer(): PlayerApi {
     engine, tracks, queue, playlists, viewId, setViewId, current, currentId, playing, time, duration, volume, muted,
     repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, normalize, setNormalize, eq, eqOn, setEqOn, setEqBand, applyPreset, eqBands, updateEqBand, addEqBand, removeEqBand, resetEq, eqRemembered, setEqRemembered, eqPresets, saveEqPreset, loadEqPreset, deleteEqPreset, spatial, setSpatial, reverb, setReverb, dynamics, setDynamics, stereo, setStereo, tone, setTone, sleepLeft, setSleep,
     loading, notice, hydrated, decoding,
-    play, toggle, next: () => next(false), prev, seek, seekBy, setVolume, volumeBy, toggleMute,
+    play, toggle, next: () => next(false), prev, seek, position: () => getEl().currentTime, seekBy, setVolume, volumeBy, toggleMute,
     cycleRepeat, toggleShuffle, addFiles, attachLrc, editTags, remove, clear, reorder,
     createPlaylist, addToPlaylist, deletePlaylist,
   }

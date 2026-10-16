@@ -33,6 +33,7 @@ A modern dark-mode music player that runs entirely in your browser. Your files a
 - **Synced lyrics** — drop `Song.lrc` next to `Song.mp3` (matched by file name) or load one from the Lyrics tab; embedded ID3 lyrics are used too. Karaoke-style auto-scroll, tap a line to seek.
 - **Offline library** — imported tracks, playlists, queue order, lyrics, settings and your last position are stored in IndexedDB, so a refresh or app restart keeps your music. Nothing leaves the device.
 - **Playlists** — create from any track's `+` menu; reorder by drag; the library is separate from playlists.
+- **Listen together** — Sound & tools → *Listen together* plays your music on several devices at once, in sync, over the same Wi-Fi. There is no server and no account: the devices connect directly (WebRTC) after you copy two short text codes between them (an *invite* from the host, a *reply* from the listener) by any means you like: a chat message, a note, reading it out. No STUN/TURN servers are configured, so nothing leaves your local network (and it does not work across the internet, by design). The host's play, pause, seek and track changes are followed by every listener; clocks are aligned with an NTP-style ping/pong, and a listener that drifts more than ~0.35 s is pulled back. A song a listener does not have is streamed from the host (only the current and next track, chunked with back-pressure and verified by byte count and CRC-32) and saved to their library like any import. The host can allow listeners to play/pause/skip. Up to 6 listeners. Needs a browser or WebView with WebRTC.
 - **Sleep timer** — 15 / 30 / 45 / 60 min with a smooth 12-second fade-out.
 - **Gapless & crossfade** — preloads the next track; crossfade blends over ~5 s.
 
@@ -138,6 +139,7 @@ src/
 │   ├── dsp.ts            shared numeric helpers (clamp, seeded RNG, equal-power mix)
 │   ├── lrc.ts            LRC parser + active-line lookup
 │   ├── db.ts             IndexedDB wrapper (tracks + meta)
+│   ├── share/            listen together: pairing codes, wire protocol, clock sync, drift planning, file streaming, WebRTC peer (lazy chunk)
 │   ├── metadata.ts       File → track (ID3 tags, cover art, lyrics pairing)
 │   └── format.ts         time formatting, procedural fallback artwork
 ├── types.ts              shared domain types (Track, Playlist, Lyrics, PlayerApi, …)
@@ -153,7 +155,7 @@ State lives in a single `usePlayer` hook. Tracks are held as object URLs created
 
 ## Privacy
 
-There are no network calls beyond loading the app itself. Close the tab and your library is gone from memory.
+There are no network calls beyond loading the app itself. Listening together talks only to the device you pair with, directly over your local network (no signalling or STUN servers). Close the tab and your library is gone from memory.
 
 ## License
 

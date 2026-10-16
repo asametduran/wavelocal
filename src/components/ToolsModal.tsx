@@ -9,6 +9,7 @@ import DynamicsSection from './DynamicsSection'
 import EqSection from './EqSection'
 import HotkeysSection from './HotkeysSection'
 import ReverbSection from './ReverbSection'
+import ShareSection from './ShareSection'
 import SpatialSection from './SpatialSection'
 import type { CSSProperties } from 'react'
 import type { PlayerApi, TransitionMode } from '../types'
@@ -67,6 +68,8 @@ export default function ToolsModal({ p, open, onClose, accent, setAccent }: Tool
         <SpatialSection p={p} />
 
         <ReverbSection p={p} />
+
+        <ShareSection />
 
         <HotkeysSection />
 

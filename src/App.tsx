@@ -8,6 +8,7 @@ import { useTrackAnnouncements } from './hooks/useA11y'
 import { useTvMode } from './hooks/useTvMode'
 import { useTheme } from './hooks/useTheme'
 import { filesFromDrop } from './lib/dropped'
+import { attachPlayer, useShare } from './lib/share/store'
 import Playlist from './components/Playlist'
 import NowPlaying from './components/NowPlaying'
 import NowPlayingSheet from './components/NowPlayingSheet'
@@ -25,6 +26,9 @@ const ShortcutsModal = lazyPanel('the shortcut list', loadShortcuts)
 export default function App() {
   const p = usePlayer()
   useDesktopTray(p)
+  // the listen-together controller reads the player through this module-level handle (it lives outside React)
+  useEffect(() => attachPlayer(p))
+  const session = useShare()
   useTrackAnnouncements(p.current, p.playing)
   const [tv, setTv] = useTvMode()
   const [accent, setAccent] = useTheme()
@@ -167,6 +171,22 @@ export default function App() {
       </div>
       <ShortcutsModal open={helpOpen} onClose={() => setHelpOpen(false)} />
       <ToolsModal p={p} accent={accent} setAccent={setAccent} open={toolsOpen} onClose={() => setToolsOpen(false)} />
+
+      {session.phase !== 'idle' && (
+        <button
+          type="button"
+          onClick={() => setToolsOpen(true)}
+          className="fixed left-4 top-4 z-[60] flex items-center gap-2 rounded-full bg-raised px-4 py-2 text-sm shadow-lg ring-1 ring-white/10"
+          aria-label="Listening together, open details"
+        >
+          <span className="h-2 w-2 rounded-full bg-accent" aria-hidden="true" />
+          {session.phase === 'host'
+            ? `Hosting · ${session.peers.filter((x) => x.status === 'connected').length} listening`
+            : session.hostName
+              ? `Listening with ${session.hostName}`
+              : 'Joining…'}
+        </button>
+      )}
 
       {p.notice && (
         <div className="fixed inset-x-0 bottom-24 z-[70] mx-auto w-fit max-w-[90vw] animate-fadeIn rounded-full bg-raised px-5 py-2.5 text-sm shadow-lg ring-1 ring-white/10" role="status">
