@@ -1,13 +1,14 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { PlayerPage, lrc, wav } from './helpers'
+import { PlayerPage, lrc, settled, wav } from './helpers'
 import { AA, SURFACES, contrastRatio, parseHex } from '../src/lib/contrast'
 
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']
 
 /** Run axe over the current page state and fail with a readable list of every violation. */
 async function expectNoViolations(page: Page, state: string): Promise<void> {
+  await settled(page) // not while a dialog is still fading in: half-faded colours read as too little contrast
   const { violations } = await new AxeBuilder({ page }).withTags(TAGS).analyze()
   const report = violations.map((v) => {
     const nodes = v.nodes

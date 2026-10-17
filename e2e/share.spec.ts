@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import type { Browser, BrowserContext } from '@playwright/test'
-import { PlayerPage, importWithMtime, wav } from './helpers'
+import { PlayerPage, importWithMtime, settled, wav } from './helpers'
 
 /** A second device: its own browser context, so its own IndexedDB library (two pages of one context would share it). */
 async function newDevice(browser: Browser, baseURL: string): Promise<{ context: BrowserContext; app: PlayerPage }> {
@@ -187,6 +187,7 @@ test.describe('listen together', () => {
 
   test('the panel has no accessibility violations while idle, inviting and connected', async () => {
     const scan = async (app: PlayerPage, state: string) => {
+      await settled(app.page)
       const { violations } = await new AxeBuilder({ page: app.page }).include('section[aria-label="Listen together"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa', 'best-practice']).analyze()
       expect(violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`), state).toEqual([])
     }

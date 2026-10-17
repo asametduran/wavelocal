@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
-import { PlayerPage, importWithMtime, libraryKey, tone } from './helpers'
+import { PlayerPage, importWithMtime, libraryKey, settled, tone } from './helpers'
 import type { Upload } from './helpers'
 
 const MTIME = 1_700_000_000_000
@@ -242,6 +242,7 @@ test.describe('backup and restore', () => {
     await choose(backup([entry(files.a, { title: 'Alpha' }), entry(files.b)], [{ id: 'p', name: 'Mix', files: [files.a, files.b] }]))
     await expect(preview()).toBeVisible()
     const scan = async (state: string) => {
+      await settled(app.page)
       const { violations } = await new AxeBuilder({ page: app.page }).include('section[aria-label="Backup and restore"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa', 'best-practice']).analyze()
       expect(violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`), state).toEqual([])
     }

@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
-import { PlayerPage, flac, realMp3File, realOggFile } from './helpers'
+import { PlayerPage, flac, realMp3File, realOggFile, settled } from './helpers'
 import type { Upload } from './helpers'
 import { concat, silence, sine } from '../src/test-utils/signals'
 import { encodeWav } from '../src/test-utils/wav'
@@ -234,6 +234,7 @@ test.describe('waveform seek bar', () => {
     await expect(seek()).toHaveAttribute('data-peaks', 'ready', { timeout: 15_000 })
     await app.seekTo(6)
     await expect(app.seekBar).toHaveAttribute('aria-valuetext', /6 seconds of 12 seconds|0 minutes 6 seconds|6 seconds/)
+    await settled(page)
     const results = await new AxeBuilder({ page }).include('#player').analyze()
     expect(results.violations).toEqual([])
   })

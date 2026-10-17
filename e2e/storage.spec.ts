@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { PlayerPage, tone } from './helpers'
+import { PlayerPage, settled, tone } from './helpers'
 
 interface StorageStub {
   usage: number
@@ -207,6 +207,7 @@ test.describe('storage manager', () => {
     await stubStorage(page, { usage: 49e9, quota: 60e9, persisted: false })
     await open(tone('01-a.wav', 1), tone('02-b.wav', 2))
     await openStorage()
+    await settled(page)
     const results = await new AxeBuilder({ page }).include('[role="dialog"]').analyze()
     expect(results.violations).toEqual([])
   })

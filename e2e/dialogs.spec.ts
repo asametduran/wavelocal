@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { PlayerPage, wav } from './helpers'
+import { PlayerPage, settled, wav } from './helpers'
 
 /** Whether the focused element is inside the (single) question dialog. */
 const focusInDialog = (page: Page): Promise<boolean> => page.evaluate(() => !!document.activeElement?.closest('[data-testid="dialog"]'))
@@ -150,6 +150,7 @@ test.describe('in-app dialogs and toasts', () => {
 
   test('has no accessibility violations with a question or a toast on screen', async ({ page }) => {
     const check = async (state: string) => {
+      await settled(page)
       const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']).analyze()
       expect(
         violations.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(' ')).join(' | ')})`),

@@ -131,6 +131,23 @@ declare global {
   }
 }
 
+/**
+ * Wait until every CSS animation and transition on the page has ended. A dialog fades in and a chip changes colour over a
+ * fraction of a second, and an accessibility scan reads the colours of whatever frame it catches: half way through a fade the
+ * contrast is too low, and a runner slower than a laptop gets caught by it. (Endless animations, such as a spinner, are not
+ * waited for.) Looks again afterwards, since the end of one transition can start another.
+ */
+export async function settled(page: Page): Promise<void> {
+  for (let round = 0; round < 5; round++) {
+    const waited = await page.evaluate(async () => {
+      const running = document.getAnimations().filter((animation) => Number.isFinite(animation.effect?.getComputedTiming().endTime ?? 0))
+      await Promise.all(running.map((animation) => animation.finished.then(() => undefined, () => undefined)))
+      return running.length
+    })
+    if (waited === 0) return
+  }
+}
+
 /** Record every Content-Security-Policy violation of the page (must run before the page loads). */
 export async function installPolicyWatch(page: Page): Promise<void> {
   await page.addInitScript(() => {
