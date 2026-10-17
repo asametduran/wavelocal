@@ -31,10 +31,17 @@ describe('paletteFor', () => {
     for (const bad of ['', 'red', 'rgb(1,2,3)', '#12', '#12345', '#ggg', null, undefined]) expect(paletteFor(bad, false), String(bad)).toEqual(fallback)
   })
 
+  it('draws the chapter marks in a light line that shows on both the quiet and the accent colour, whatever the accent', () => {
+    const { marks } = paletteFor('#a78bfa', false)
+    expect(marks).toMatch(/^rgba\(255, 255, 255, 0\.[6-9]\d*\)$/)
+    expect(paletteFor('#2dd4bf', false).marks).toBe(marks)
+  })
+
   it('uses the system colours in forced-colours mode, where a canvas is not recoloured for the person', () => {
     expect(paletteFor('#a78bfa', true)).toEqual({
       base: { peak: 'GrayText', body: 'CanvasText' },
       played: { peak: 'Highlight', body: 'Highlight' },
+      marks: 'CanvasText',
     })
   })
 })

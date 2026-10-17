@@ -13,6 +13,8 @@ const SHORTCUTS: readonly (readonly [keys: string, description: string])[] = [
   ['R', 'Cycle repeat'],
   ['/', 'Focus search'],
   ['E', 'Open sound tools'],
+  ['C', 'Chapters of this track'],
+  [', / .', 'Previous / next chapter'],
   ['T', 'Toggle TV mode'],
   ['?', 'Show this help'],
   ['Alt + ↑ / ↓', 'Move the focused track up / down the queue'],

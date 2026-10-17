@@ -13,6 +13,8 @@ export interface WavePalette {
   base: Palette
   /** What has been played. */
   played: Palette
+  /** The lines that tell where a chapter begins, drawn over both. */
+  marks: string
 }
 
 function rgb(hex: string): [number, number, number] | null {
@@ -24,10 +26,11 @@ function rgb(hex: string): [number, number, number] | null {
 }
 
 export function paletteFor(accent: string | null | undefined, forcedColors: boolean): WavePalette {
-  if (forcedColors) return { base: { peak: 'GrayText', body: 'CanvasText' }, played: { peak: 'Highlight', body: 'Highlight' } }
+  if (forcedColors) return { base: { peak: 'GrayText', body: 'CanvasText' }, played: { peak: 'Highlight', body: 'Highlight' }, marks: 'CanvasText' }
   const [r, g, b] = (accent ? rgb(accent) : null) ?? rgb(DEFAULT_ACCENT) ?? [167, 139, 250]
   return {
     base: { peak: 'rgba(255, 255, 255, 0.22)', body: 'rgba(255, 255, 255, 0.42)' },
     played: { peak: `rgba(${r}, ${g}, ${b}, 0.5)`, body: `rgb(${r}, ${g}, ${b})` },
+    marks: 'rgba(255, 255, 255, 0.7)',
   }
 }

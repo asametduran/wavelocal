@@ -29,7 +29,8 @@ const MAX_TEXT_BYTES = 8192
 const latin1 = new TextDecoder('windows-1252')
 const utf8 = new TextDecoder('utf-8')
 
-function decodeText(b: Uint8Array): string {
+/** The text of an ID3 text-frame body (an encoding byte, then the text); '' when it is empty. Also used by the chapter reader. */
+export function decodeText(b: Uint8Array): string {
   if (b.length < 2) return ''
   const encoding = b[0]
   let data = b.subarray(1)
@@ -53,7 +54,7 @@ function decodeText(b: Uint8Array): string {
 }
 
 /** Undo frame-level unsynchronisation (v2.4): FF 00 stands for FF. */
-function deunsync(b: Uint8Array): Uint8Array {
+export function deunsync(b: Uint8Array): Uint8Array {
   const out: number[] = []
   for (let i = 0; i < b.length; i++) {
     out.push(b[i] ?? 0)

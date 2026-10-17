@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { PlayerPage, wav } from './helpers'
+import { PlayerPage, heldTimes, holdFiles, releaseFiles, wav } from './helpers'
 
 test.describe('importing and playback', () => {
   let app: PlayerPage
@@ -56,6 +56,40 @@ test.describe('importing and playback', () => {
     await expect.poll(() => app.position()).toBe(17)
     await app.key('ArrowLeft')
     await expect.poll(() => app.position()).toBe(12)
+  })
+
+  test('a seek made before the browser knows the length of the file is kept and made when it does, not dropped', async ({ page }) => {
+    // the track is current but the browser has not read the file yet, so it cannot say how long it is (a slow disk, a busy
+    // phone, the page just restored): the library knows the length from the file's header, so the bar can be used already
+    await holdFiles(page)
+    await app.reload()
+    await app.importFiles(wav('long'))
+    await expect(app.rows).toHaveCount(1)
+    await expect.poll(() => app.duration()).toBe(30)
+
+    await app.seekBar.fill('12')
+    await expect(app.seekBar).toHaveValue('12') // the bar goes where it was sent, it does not snap back
+    await expect.poll(() => app.position()).toBe(12)
+
+    await releaseFiles(page)
+    await expect.poll(async () => Math.max(...(await heldTimes(page)))).toBeCloseTo(12, 0) // and the file is there when it can be
+    await expect(app.seekBar).toHaveValue('12')
+  })
+
+  test('a seek that was waiting for one track is not carried over to the next one', async ({ page }) => {
+    await holdFiles(page)
+    await app.reload()
+    await app.importFiles(wav('long', 'a.wav'), wav('long', 'b.wav'))
+    await expect(app.rows).toHaveCount(2)
+    await expect.poll(() => app.duration()).toBe(30)
+    await app.seekBar.fill('12') // meant for a, which is not ready
+
+    await app.row('b').locator('button[aria-current]').click() // the person moves on to b before a was ready
+    await expect(app.nowPlayingTitle).toHaveText('b')
+    await releaseFiles(page)
+    await expect.poll(async () => (await heldTimes(page)).length).toBeGreaterThan(0)
+    await page.waitForTimeout(800)
+    expect(Math.max(...(await heldTimes(page)))).toBeLessThan(6) // b starts at its beginning, not at 12
   })
 
   test('Space toggles playback from the keyboard', async () => {

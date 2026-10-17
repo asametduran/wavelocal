@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { barCount, barsFor, paintBars } from './draw'
+import { barCount, barsFor, markPositions, MARK_GAP, paintBars, paintMarks } from './draw'
 import type { PaintTarget } from './draw'
 import type { Peaks } from './types'
 
@@ -101,5 +101,59 @@ describe('paintBars', () => {
     paintBars(target, [{ x: 0, peak: 0.51, rms: 0.3 }], 10, 40, palette)
     const heights = log.slice(1).map((entry) => Number(entry.split('x')[1]))
     expect(heights.every((h) => h % 2 === 0)).toBe(true)
+  })
+})
+
+describe('markPositions', () => {
+  it('puts a mark at the pixel column of each time', () => {
+    expect(markPositions([30, 60, 90], 120, 120)).toEqual([30, 60, 90])
+    expect(markPositions([25, 75], 100, 400)).toEqual([100, 300])
+  })
+
+  it('has no mark for the very start, for the end or beyond it, or for a time that is not a time', () => {
+    expect(markPositions([0, 120, 500, -5, Number.NaN, Number.POSITIVE_INFINITY], 120, 120)).toEqual([])
+  })
+
+  it('has no mark where it would sit on the edge of the bar, which a mark on the start or end would be', () => {
+    expect(markPositions([10], 10_000, 100)).toEqual([]) // rounds to column 0
+    expect(markPositions([9_990], 10_000, 100)).toEqual([]) // rounds to column 100, past the last
+    expect(markPositions([5_000], 10_000, 100)).toEqual([50])
+  })
+
+  it('drops a mark that is less than the gap from the one before it, so crowded chapters do not make a smudge', () => {
+    expect(markPositions([10, 11, 12, 20], 100, 100)).toEqual([10, 20])
+    expect(markPositions([10, 14], 100, 100)).toEqual([10, 14]) // exactly the gap apart is kept
+    expect(markPositions([10, 13], 100, 100)).toEqual([10])
+  })
+
+  it('keeps a thousand chapters readable on a narrow bar: never closer than the gap, never more than fit', () => {
+    const times = Array.from({ length: 1000 }, (_, i) => (i + 1) * 3.6)
+    const xs = markPositions(times, 3700, 300)
+    expect(xs.length).toBeGreaterThan(0)
+    expect(xs.length).toBeLessThanOrEqual(Math.floor(300 / MARK_GAP))
+    for (let i = 1; i < xs.length; i++) expect((xs[i] ?? 0) - (xs[i - 1] ?? 0)).toBeGreaterThanOrEqual(MARK_GAP)
+    expect(xs.every((x) => x >= 1 && x <= 299)).toBe(true)
+  })
+
+  it('has nothing to mark on a bar without a width or a length', () => {
+    expect(markPositions([5], 10, 0)).toEqual([])
+    expect(markPositions([5], 10, Number.NaN)).toEqual([])
+    expect(markPositions([5], 0, 100)).toEqual([])
+    expect(markPositions([5], Number.NaN, 100)).toEqual([])
+    expect(markPositions([], 10, 100)).toEqual([])
+  })
+})
+
+describe('paintMarks', () => {
+  it('clears the canvas, then draws each mark as a thin line over the whole height, in the given colour', () => {
+    const { target, log } = recorder()
+    paintMarks(target, [10, 40], 100, 36, 'white')
+    expect(log).toEqual(['clear 0,0 100x36', 'white 10,0 1x36', 'white 40,0 1x36'])
+  })
+
+  it('leaves a canvas with no marks empty', () => {
+    const { target, log } = recorder()
+    paintMarks(target, [], 100, 36, 'white')
+    expect(log).toEqual(['clear 0,0 100x36'])
   })
 })

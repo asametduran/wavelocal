@@ -18,7 +18,7 @@ import QueueSheet from './components/QueueSheet'
 import ImportStatus from './components/ImportStatus'
 import OverlayGate from './components/OverlayGate'
 import LiveRegion, { SkipLinks } from './components/LiveRegion'
-import { lazyPanel, preloadWhenIdle } from './components/lazy'
+import { Deferred, lazyPanel, lazyRetry, preloadWhenIdle } from './components/lazy'
 import PlayerBar, { MiniBar } from './components/PlayerBar'
 
 // Rarely opened panels are separate chunks: the sound tools alone pull in the EQ, dynamics, spatial and reverb editors.
@@ -26,6 +26,8 @@ const loadTools = () => import('./components/ToolsModal')
 const loadShortcuts = () => import('./components/ShortcutsModal')
 const ToolsModal = lazyPanel('the sound tools', loadTools)
 const ShortcutsModal = lazyPanel('the shortcut list', loadShortcuts)
+// What acts for a long recording while it plays (chapters, and with them the chapter keys and list) is a lazy chunk as well.
+const ListeningController = lazyRetry(() => import('./components/ListeningController'))
 
 export default function App() {
   const p = usePlayer()
@@ -214,6 +216,11 @@ export default function App() {
       )}
 
       <OverlayGate />
+      {p.current && (
+        <Deferred label="the chapter controls" onDismiss={() => ListeningController.reset()}>
+          <ListeningController p={p} />
+        </Deferred>
+      )}
 
       {p.decoding !== null && (
         <div className="fixed right-4 top-16 z-[60] flex items-center gap-2 rounded-full bg-raised px-4 py-2 text-sm shadow-lg" role="status">

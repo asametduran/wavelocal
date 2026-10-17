@@ -1,11 +1,13 @@
 import type { AudioFormat } from './audio/probe/types'
 
-/** Format seconds as `m:ss`; invalid or negative input renders as `0:00`. */
+/** Format seconds as `m:ss`, or `h:mm:ss` from an hour on; invalid or negative input renders as `0:00`. */
 export function formatTime(s: number): string {
   if (!Number.isFinite(s) || s < 0) return '0:00'
-  const m = Math.floor(s / 60)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
   const sec = Math.floor(s % 60)
-  return `${m}:${String(sec).padStart(2, '0')}`
+  const two = (n: number): string => String(n).padStart(2, '0')
+  return h ? `${h}:${two(m)}:${two(sec)}` : `${m}:${two(sec)}`
 }
 
 /** A total length for a list: "42 min", "3 h 30 min"; empty when there is nothing to say. */

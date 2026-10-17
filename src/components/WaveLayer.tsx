@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { RefObject } from 'react'
-import { barsFor, paintBars } from '../lib/waveform/draw'
+import { chapterIndexAt } from '../lib/chapters/navigate'
+import type { Chapter } from '../lib/chapters/types'
+import { barsFor, markPositions, paintBars, paintMarks } from '../lib/waveform/draw'
 import type { Bar, Palette } from '../lib/waveform/draw'
 import { peaksService, pruneOnce } from '../lib/waveform/instance'
 import { paletteFor } from '../lib/waveform/palette'
 import { seekStyle } from '../lib/waveform/prefs'
+import { useChapters } from '../hooks/useChapters'
 import { formatTime } from '../lib/format'
 import type { PlayerApi } from '../types'
 
 /**
  * The drawing behind the seek bar. The seek bar itself is, and stays, the native range input of `PlayerBar.tsx` (keyboard,
- * touch, screen readers, every test that drives it); this only adds what the file looks like, in two canvases: the whole
- * waveform in a quiet colour and the same in the accent colour, clipped to the part already played by CSS from the `--p`
- * the wrapper carries, so nothing is redrawn as playback moves. Loaded lazily; until it arrives, and when the person chose
- * the plain bar, the page looks exactly as it did before.
+ * touch, screen readers, every test that drives it); this only adds what the file looks like, in three canvases: the whole
+ * waveform in a quiet colour, the same in the accent colour, clipped to the part already played by CSS from the `--p` the
+ * wrapper carries, so nothing is redrawn as playback moves, and the lines where the chapters begin. Loaded lazily; until it
+ * arrives, and when the person chose the plain bar, the page looks exactly as it did before.
  */
 
 interface WaveLayerProps {
@@ -46,14 +49,26 @@ function useAccent(): string {
   return accent
 }
 
-function paint(canvas: HTMLCanvasElement | null, bars: readonly Bar[], width: number, height: number, palette: Palette): void {
+/** The canvas sized for `width` x `height` CSS pixels at the screen's pixel ratio, ready to draw in CSS pixels. */
+function context(canvas: HTMLCanvasElement | null, width: number, height: number): CanvasRenderingContext2D | null {
   const ctx = canvas?.getContext('2d')
-  if (!canvas || !ctx) return
+  if (!canvas || !ctx) return null
   const ratio = window.devicePixelRatio || 1
   canvas.width = Math.round(width * ratio)
   canvas.height = Math.round(height * ratio)
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-  paintBars(ctx, bars, width, height, palette)
+  return ctx
+}
+
+function paint(canvas: HTMLCanvasElement | null, bars: readonly Bar[], width: number, height: number, palette: Palette): void {
+  const ctx = context(canvas, width, height)
+  if (ctx) paintBars(ctx, bars, width, height, palette)
+}
+
+/** " · The Fall of Rome": the chapter under the pointer, for the label above the bar; nothing when there are no chapters or none has begun. */
+function hoverName(chapters: readonly Chapter[] | null, time: number): string {
+  const title = chapters?.[chapterIndexAt(chapters, time)]?.title
+  return title ? ` · ${title}` : ''
 }
 
 export default function WaveLayer({ p, box }: WaveLayerProps) {
@@ -116,6 +131,17 @@ export default function WaveLayer({ p, box }: WaveLayerProps) {
     paint(played.current, bars, size.w, size.h, palette.played)
   }, [style, size, state, accent, forced])
 
+  // where the chapters begin: lines over the waveform, drawn when the chapters, the size, the length or the colours change
+  const chapterState = useChapters(id)
+  const chapters = chapterState.status === 'ready' ? chapterState.chapters : null
+  const lines = useRef<HTMLCanvasElement>(null)
+  const length = duration > 0 ? duration : trackDuration
+  useEffect(() => {
+    if (style !== 'waveform' || !size.w || !size.h) return
+    const ctx = context(lines.current, size.w, size.h)
+    if (ctx) paintMarks(ctx, chapters ? markPositions(chapters.map((c) => c.start), length, size.w) : [], size.w, size.h, paletteFor(accent, forced).marks)
+  }, [style, size, chapters, length, accent, forced])
+
   // the time under the pointer, as a small label above the bar (the slider itself speaks the time for screen readers)
   const [hover, setHover] = useState<{ x: number; t: number } | null>(null)
   useEffect(() => {
@@ -143,9 +169,11 @@ export default function WaveLayer({ p, box }: WaveLayerProps) {
     <div aria-hidden="true" className="pointer-events-none absolute inset-0">
       <canvas ref={base} className="absolute inset-0 h-full w-full" />
       <canvas ref={played} className="absolute inset-0 h-full w-full" style={{ clipPath: 'inset(0 calc(100% - var(--p, 0%)) 0 0)' }} />
+      <canvas ref={lines} className="absolute inset-0 h-full w-full" />
       {hover && duration > 0 && (
-        <span className="absolute -top-6 -translate-x-1/2 rounded bg-black/80 px-1.5 py-0.5 text-[11px] tabular-nums text-zinc-100" style={{ left: hover.x }}>
+        <span className="absolute -top-6 max-w-[min(24rem,60vw)] -translate-x-1/2 truncate whitespace-nowrap rounded bg-black/80 px-1.5 py-0.5 text-[11px] tabular-nums text-zinc-100" style={{ left: hover.x }}>
           {formatTime(hover.t)}
+          {hoverName(chapters, hover.t)}
         </span>
       )}
     </div>

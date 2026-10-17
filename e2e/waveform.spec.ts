@@ -188,7 +188,7 @@ test.describe('waveform seek bar', () => {
     await style.getByRole('radio', { name: 'Waveform' }).click()
     await expect(seek()).toHaveAttribute('data-wave', 'on')
     await expect(seek()).toHaveAttribute('data-peaks', 'ready')
-    await expect(seek().locator('canvas')).toHaveCount(2)
+    await expect(seek().locator('canvas')).toHaveCount(3) // the shape, the played part of it, and the lines where chapters begin
     expect(await page.evaluate(() => localStorage.getItem('wl.seekbar'))).toBe('waveform')
   })
 
@@ -257,7 +257,7 @@ test.describe('waveform seek bar on a phone', () => {
     expect(box?.height ?? 0).toBeGreaterThan(50)
     expect(box?.height ?? 0).toBeLessThan(64)
     expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(390)
-    await expect(bar.locator('canvas')).toHaveCount(2)
+    await expect(bar.locator('canvas')).toHaveCount(3)
     expect(await app.policyViolations()).toEqual([])
   })
 })

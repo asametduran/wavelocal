@@ -14,6 +14,8 @@ const iconBtn =
 
 // The waveform behind the seek bar is a lazy chunk (the start-up bundle has no room for it); the native range input stays the control.
 const WaveLayer = lazyRetry(() => import('./WaveLayer'))
+// So is the chapter row (previous / current / next chapter), which only a file that has chapters shows.
+const SeekExtras = lazyRetry(() => import('./SeekExtras'))
 
 /**
  * The seek bar: the range input, with the waveform of the file drawn behind it once that has loaded (unless the person chose the
@@ -50,13 +52,20 @@ export function Transport({ p, big = false }: { p: PlayerApi; big?: boolean }) {
   const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat
   const btn = big ? 'h-12 w-12' : 'h-9 w-9'
   const playBtn = big ? 'h-16 w-16' : 'h-11 w-11'
+  const clock = duration >= 3600 ? 'w-14' : 'w-10' // "1:23:45" is wider than "23:45"
 
   return (
     <div className={`flex w-full items-center gap-1 ${big ? 'flex-col' : 'flex-col-reverse'}`}>
+      {/* the first child sits at the bottom of the footer (it is laid out in reverse) and at the top of the phone sheet */}
+      {current && (
+        <Deferred label="the chapter controls" onDismiss={() => SeekExtras.reset()}>
+          <SeekExtras p={p} big={big} />
+        </Deferred>
+      )}
       <div className={`flex w-full items-center gap-3 tabular-nums text-zinc-400 ${big ? 'mb-3 text-xs' : 'max-w-2xl text-[11px]'}`}>
-        <span className="w-10 text-right" aria-hidden="true">{formatTime(time)}</span>
+        <span className={`${clock} text-right`} aria-hidden="true">{formatTime(time)}</span>
         <SeekBar p={p} big={big} />
-        <span className="w-10" aria-hidden="true">{formatTime(duration)}</span>
+        <span className={clock} aria-hidden="true">{formatTime(duration)}</span>
       </div>
       <div className={`flex items-center ${big ? 'w-full justify-between' : 'gap-1 sm:gap-2'}`}>
         <button className={`${iconBtn} ${btn} ${shuffle ? '!text-accent' : ''}`} onClick={p.toggleShuffle} aria-pressed={shuffle} aria-label="Shuffle (S)" title="Shuffle (S)">

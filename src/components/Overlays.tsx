@@ -4,19 +4,10 @@ import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useDialog } from '../hooks/useA11y'
 import { isBackKey } from '../hooks/useHotkeys'
+import { useInertPage } from '../hooks/useInertPage'
 import { openBackLayer } from '../lib/backlayer'
 import { overlays } from '../lib/overlays'
 import type { DialogView, Toast } from '../lib/overlays'
-
-/** The page behind a dialog is inert while it is open: no focus, no clicks, and a screen reader cannot wander off into it. */
-function useInertPage(active: boolean): void {
-  useEffect(() => {
-    if (!active) return undefined
-    const page = document.getElementById('root')
-    page?.setAttribute('inert', '')
-    return () => page?.removeAttribute('inert')
-  }, [active])
-}
 
 const button = 'rounded-full px-4 py-2 text-sm font-semibold transition'
 

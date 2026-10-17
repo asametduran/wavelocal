@@ -1,6 +1,7 @@
 import { ascii, be24, be32 } from '../source'
 import type { ByteSource } from '../source'
 import { MAX_PICTURE_BYTES, parseFlacPicture, parseVorbisComments, tagsFromVorbis } from '../vorbis'
+import type { VorbisComments } from '../vorbis'
 import { skipId3v2 } from './id3'
 import { blankFormat } from './types'
 import type { ProbeResult, TagValues } from './types'
@@ -18,6 +19,22 @@ interface Candidate {
   kind: number
   mime: string
   bytes: Uint8Array<ArrayBuffer>
+}
+
+/** The Vorbis comments of a FLAC file (its VORBIS_COMMENT block), or null. The chapter reader (`chapters/vorbis.ts`) uses it. */
+export async function readFlacComments(source: ByteSource): Promise<VorbisComments | null> {
+  let pos = await skipId3v2(source)
+  if (ascii(await source.read(pos, 4), 0, 4) !== 'fLaC') return null
+  pos += 4
+  for (let i = 0; i < MAX_BLOCKS; i++) {
+    const head = await source.read(pos, 4)
+    if (head.length < 4) break
+    const length = be24(head, 1)
+    if (((head[0] ?? 0) & 0x7f) === 4) return length <= MAX_COMMENT_BYTES ? parseVorbisComments(await source.read(pos + 4, length)) : null
+    pos += 4 + length
+    if (((head[0] ?? 0) & 0x80) !== 0 || pos >= source.size) break
+  }
+  return null
 }
 
 export async function probeFlac(source: ByteSource): Promise<ProbeResult | null> {

@@ -1,3 +1,4 @@
+import { pruneByPrefix } from '../rawdb'
 import type { KeyValue } from '../rawdb'
 import type { NoPeaks, PeaksRecord } from './types'
 
@@ -44,12 +45,4 @@ export async function savePeaks(kv: KeyValue, trackId: string, record: PeaksReco
 }
 
 /** Forget the waveforms of tracks that are no longer in the library. Resolves with how many were deleted. */
-export async function prunePeaks(kv: KeyValue, known: ReadonlySet<string>): Promise<number> {
-  let removed = 0
-  for (const key of await kv.keys(PEAKS_PREFIX)) {
-    if (known.has(key.slice(PEAKS_PREFIX.length))) continue
-    await kv.delete(key)
-    removed++
-  }
-  return removed
-}
+export const prunePeaks = (kv: KeyValue, known: ReadonlySet<string>): Promise<number> => pruneByPrefix(kv, PEAKS_PREFIX, known)

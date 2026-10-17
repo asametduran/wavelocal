@@ -322,13 +322,14 @@ export function usePlayer(): PlayerApi {
   )
 
   const load = useCallback(
-    (track: Track | null | undefined, autoplay = true) => {
+    (track: Track | null | undefined, autoplay = true, at: number | null = null) => {
       if (!track) return
       cancelTransition()
       const el = getEl()
       const token = ++loadToken.current
       awaitingSrc.current = false
       playIntent.current = autoplay
+      pendingSeek.current = at // a position that was waiting for another track is not this one's
       state.current.currentId = track.id
       setCurrentId(track.id)
       setTime(0)
@@ -564,14 +565,21 @@ export function usePlayer(): PlayerApi {
   const seek = useCallback(
     (t: number) => {
       const el = getEl()
-      if (!Number.isFinite(el.duration)) return
+      if (!Number.isFinite(t)) return
+      if (!Number.isFinite(el.duration)) {
+        // the browser has not read the file yet (a slow disk, a page just restored), but the library knows how long it is,
+        // so the bar can be used: the position is made as soon as the file can take it, the way a restored one is
+        pendingSeek.current = Math.max(0, t)
+        setTime(pendingSeek.current)
+        return
+      }
       el.currentTime = clamp(t, 0, el.duration)
       tally.current.jumped() // a seek is not listening
       setTime(el.currentTime)
     },
     [getEl],
   )
-  const seekBy = useCallback((d: number) => seek(getEl().currentTime + d), [getEl, seek])
+  const seekBy = useCallback((d: number) => seek((pendingSeek.current ?? getEl().currentTime) + d), [getEl, seek])
 
   /** A play has been earned: bump the counter in memory and in the offline library. */
   const recordPlay = useCallback((id: string) => {
@@ -1148,8 +1156,7 @@ export function usePlayer(): PlayerApi {
           setTracks((l) => [...restored, ...l])
           if (!state.current.currentId) {
             const start = restored.find((t) => t.id === resume?.id) || first
-            if (resume && resume.id === start.id && resume.time > 1) pendingSeek.current = resume.time
-            load(start, false)
+            load(start, false, resume && resume.id === start.id && resume.time > 1 ? resume.time : null)
           }
         }
         if (Array.isArray(pls)) setPlaylists(pls)

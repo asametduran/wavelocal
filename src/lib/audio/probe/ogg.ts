@@ -119,6 +119,17 @@ function coverFrom(comments: VorbisComments): Blob | null {
   return best ? new Blob([best.bytes], { type: best.mime }) : null
 }
 
+/** The Vorbis comments of an Ogg Vorbis or Opus file (its second packet), or null. The chapter reader (`chapters/vorbis.ts`) uses it. */
+export async function readOggComments(source: ByteSource): Promise<VorbisComments | null> {
+  const first = await readPage(source, 0)
+  if (!first) return null
+  const id = await source.read(first.bodyStart, Math.min(first.end - first.bodyStart, 64))
+  const opus = ascii(id, 0, 8) === 'OpusHead'
+  if (!opus && !(id[0] === 1 && ascii(id, 1, 6) === 'vorbis')) return null
+  const { packet } = await readCommentPacket(source, first)
+  return packet ? parseVorbisComments(packet, opus ? 8 : 7) : null
+}
+
 export async function probeOgg(source: ByteSource): Promise<ProbeResult | null> {
   const first = await readPage(source, 0)
   if (!first) return null

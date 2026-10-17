@@ -27,6 +27,20 @@ function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequ
   )
 }
 
+/**
+ * Delete the records under `prefix` whose track (the rest of the key) is not in `known`; resolves with how many went. Every
+ * cache of derived data (waveforms, chapters) forgets the tracks that left the library this way.
+ */
+export async function pruneByPrefix(kv: KeyValue, prefix: string, known: ReadonlySet<string>): Promise<number> {
+  let removed = 0
+  for (const key of await kv.keys(prefix)) {
+    if (known.has(key.slice(prefix.length))) continue
+    await kv.delete(key)
+    removed++
+  }
+  return removed
+}
+
 export const idbKeyValue: KeyValue = {
   get: (key) => run('readonly', (s) => s.get(key)),
   set: (key, value) => run('readwrite', (s) => s.put(value, key)).then(() => undefined),

@@ -46,6 +46,28 @@ export function barsFor(peaks: Peaks | null, width: number, barWidth: number = B
   })
 }
 
+/** The least distance in pixels between two marks: closer ones are one smudge to the eye, so the later one is left out. */
+export const MARK_GAP = 4
+
+/**
+ * The pixel column of each mark for `times` (seconds, ascending) on a bar `width` pixels wide that shows `duration` seconds.
+ * A time that is not on the bar, or that would sit on its first or last column (where it cannot be told from the edge), has no
+ * mark, and a mark less than `gap` pixels from the one before it is dropped, so a thousand chapters on a phone stay readable.
+ */
+export function markPositions(times: readonly number[], duration: number, width: number, gap: number = MARK_GAP): number[] {
+  if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(width) || width <= 0) return []
+  const columns: number[] = []
+  for (const time of times) {
+    if (!Number.isFinite(time) || time <= 0 || time >= duration) continue
+    const x = Math.round((time / duration) * width)
+    if (x < 1 || x > width - 1) continue
+    const last = columns.at(-1)
+    if (last !== undefined && x - last < gap) continue
+    columns.push(x)
+  }
+  return columns
+}
+
 /** The part of a canvas context that painting needs. */
 export interface PaintTarget {
   fillStyle: string | CanvasGradient | CanvasPattern
@@ -74,4 +96,11 @@ export function paintBars(ctx: PaintTarget, bars: readonly Bar[], width: number,
     ctx.fillStyle = palette.body
     ctx.fillRect(bar.x, (height - inner) / 2, barWidth, inner)
   }
+}
+
+/** Paint a thin line over the whole height at each of `columns` (clearing the canvas first): the marks that tell where a chapter begins. */
+export function paintMarks(ctx: PaintTarget, columns: readonly number[], width: number, height: number, color: string): void {
+  ctx.clearRect(0, 0, width, height)
+  ctx.fillStyle = color
+  for (const x of columns) ctx.fillRect(x, 0, 1, height)
 }

@@ -7,6 +7,11 @@ const BACK_CODES = new Set([10009, 461]) // Tizen / webOS remotes
 /** Escape, and the Back keys of TV remotes and browsers: the keys that close the topmost layer. */
 export const isBackKey = (e: { key: string; keyCode: number }): boolean => BACK_KEYS.has(e.key) || BACK_CODES.has(e.keyCode)
 
+/** True when a key press is going into something that takes text, so it is typing and not a shortcut (a slider is not). */
+export function isTyping(el: EventTarget | null): boolean {
+  return el instanceof HTMLElement && (el.isContentEditable || /^(TEXTAREA|SELECT)$/.test(el.tagName) || (el instanceof HTMLInputElement && el.type !== 'range'))
+}
+
 /** The slice of the player API the hotkeys drive. */
 export type HotkeyPlayer = Pick<PlayerApi, 'toggle' | 'next' | 'prev' | 'seekBy' | 'volumeBy' | 'toggleMute' | 'toggleShuffle' | 'cycleRepeat'>
 
@@ -54,10 +59,7 @@ export function useHotkeys(p: HotkeyPlayer, { focusSearch, onBack, tv, toggleTv,
       }
 
       const el = e.target
-      const typing =
-        el instanceof HTMLElement &&
-        (el.isContentEditable || /^(TEXTAREA|SELECT)$/.test(el.tagName) || (el instanceof HTMLInputElement && el.type !== 'range'))
-      if (typing || e.ctrlKey || e.metaKey || e.altKey) return
+      if (isTyping(el) || e.ctrlKey || e.metaKey || e.altKey) return
 
       const arrows: ActionMap = tv
         ? {}

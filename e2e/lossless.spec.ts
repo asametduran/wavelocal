@@ -11,6 +11,10 @@ const wavSize = (seconds: number, rate: number, channels: number) => 44 + Math.r
 test.describe('lossless playback: the browser can play it', () => {
   let app: PlayerPage
   test.beforeEach(async ({ page }) => {
+    // These tests count the workers that playback itself needs (none, when the browser plays the file). The waveform of a
+    // WAV or FLAC file is measured by a worker too, a second after the track starts, so on a slow machine it would be counted:
+    // the plain bar does no measuring.
+    await page.addInitScript(() => localStorage.setItem('wl.seekbar', 'plain'))
     app = new PlayerPage(page)
     await app.open()
   })

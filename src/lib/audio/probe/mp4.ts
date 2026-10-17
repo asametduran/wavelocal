@@ -14,14 +14,15 @@ const MAX_MOOV = 32 * 1024 * 1024
 /** Box types a media file may start with (everything else is not an MP4 as far as this probe is concerned). */
 const FIRST_BOXES = new Set(['ftyp', 'moov', 'mdat', 'free', 'skip', 'wide', 'pnot', 'uuid', 'styp'])
 
-interface Box {
+export interface Box {
   type: string
   /** Offsets within the buffer being walked. */
   payload: number
   end: number
 }
 
-function* children(b: Uint8Array, start: number, end: number): Generator<Box> {
+/** The boxes between `start` and `end` of a buffer. Also used by the chapter reader (`chapters/mp4.ts`). */
+export function* children(b: Uint8Array, start: number, end: number): Generator<Box> {
   let at = start
   while (at + 8 <= end) {
     let size = be32(b, at)
@@ -41,9 +42,9 @@ const childIn = (b: Uint8Array, start: number, end: number, type: string): Box |
   return undefined
 }
 
-const child = (b: Uint8Array, parent: Box, type: string): Box | undefined => childIn(b, parent.payload, parent.end, type)
+export const child = (b: Uint8Array, parent: Box, type: string): Box | undefined => childIn(b, parent.payload, parent.end, type)
 
-const descend = (b: Uint8Array, parent: Box | undefined, ...path: string[]): Box | undefined => {
+export const descend = (b: Uint8Array, parent: Box | undefined, ...path: string[]): Box | undefined => {
   let box = parent
   for (const type of path) {
     if (!box) return undefined
@@ -53,7 +54,7 @@ const descend = (b: Uint8Array, parent: Box | undefined, ...path: string[]): Box
 }
 
 /** Time scale and duration (seconds, or null when unset) of an `mvhd` or `mdhd` box. */
-function timing(b: Uint8Array, box: Box): { timescale: number; duration: number | null } {
+export function timing(b: Uint8Array, box: Box): { timescale: number; duration: number | null } {
   const v1 = (b[box.payload] ?? 0) === 1
   const timescale = be32(b, box.payload + (v1 ? 20 : 12))
   const raw = v1 ? be64(b, box.payload + 24) : be32(b, box.payload + 16)

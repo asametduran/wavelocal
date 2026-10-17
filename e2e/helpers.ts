@@ -148,6 +148,51 @@ export async function settled(page: Page): Promise<void> {
   }
 }
 
+/**
+ * Keep every media element from starting to read its file (an assignment to `src` waits) until `releaseFiles` is called. That
+ * is how an element looks to the page while the browser has not read the file yet (a slow disk, a busy phone, a page just
+ * restored): no length (NaN), no events. Must run before the page loads.
+ */
+export async function holdFiles(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const held: Held = { on: true, waiting: new Map(), media: new Set() }
+    Object.assign(window, { __held: held })
+    const real = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src')
+    Object.defineProperty(HTMLMediaElement.prototype, 'src', {
+      configurable: true,
+      get(this: HTMLMediaElement) {
+        return real?.get?.call(this) as string
+      },
+      set(this: HTMLMediaElement, value: string) {
+        held.media.add(this)
+        if (held.on) held.waiting.set(this, value)
+        else real?.set?.call(this, value)
+      },
+    })
+  })
+}
+
+interface Held {
+  on: boolean
+  waiting: Map<HTMLMediaElement, string>
+  media: Set<HTMLMediaElement>
+}
+
+/** Let the media elements read the files they were given while they were held. */
+export async function releaseFiles(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const held = (window as unknown as { __held: Held }).__held
+    held.on = false
+    for (const [media, src] of held.waiting) media.src = src
+    held.waiting.clear()
+  })
+}
+
+/** Where each media element that was given a file while they were held is, in seconds. */
+export async function heldTimes(page: Page): Promise<number[]> {
+  return page.evaluate(() => [...(window as unknown as { __held: Held }).__held.media].map((media) => media.currentTime))
+}
+
 /** Record every Content-Security-Policy violation of the page (must run before the page loads). */
 export async function installPolicyWatch(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -439,6 +484,28 @@ export class PlayerPage {
           open.onerror = () => reject(open.error)
         }),
       key,
+    )
+  }
+
+  /** Write one value into the app's `meta` store, as the app itself would: how a test plants a record (a damaged one, a stale one). */
+  async putMeta(key: string, value: unknown): Promise<void> {
+    await this.page.evaluate(
+      ([key, value]) =>
+        new Promise<void>((resolve, reject) => {
+          const open = indexedDB.open('wavelocal', 1)
+          open.onsuccess = () => {
+            const db = open.result
+            const tx = db.transaction('meta', 'readwrite')
+            tx.objectStore('meta').put(value, key)
+            tx.oncomplete = () => {
+              db.close()
+              resolve()
+            }
+            tx.onerror = () => reject(tx.error)
+          }
+          open.onerror = () => reject(open.error)
+        }),
+      [key, value] as const,
     )
   }
 
