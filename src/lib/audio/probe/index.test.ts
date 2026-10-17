@@ -4,6 +4,7 @@ import { probeAudio } from './index'
 import type { ProbeResult } from './types'
 import { buildFlac } from '../../../test-utils/fixtures'
 import { buildAdts, buildMp3, buildMp4, buildOgg, buildRiff, cat, id3v2Blank } from '../../../test-utils/containers'
+import { clock, since } from '../../../test-utils/fuzz'
 
 const probe = (bytes: Uint8Array) => probeAudio(bytesSource(bytes))
 
@@ -100,12 +101,12 @@ describe('probeAudio: damaged and hostile input', () => {
   })
 
   it('stays fast on inputs built to look like audio everywhere', async () => {
-    const started = performance.now()
+    const started = clock()
     sane(await probe(new Uint8Array(5 * 1024 * 1024).fill(0xff)))
     const header = [0xff, 0xfb, 0x90, 0x00]
     sane(await probe(Uint8Array.from({ length: 4 * 1024 * 1024 }, (_, i) => (i % 417 < 4 ? (header[i % 417] ?? 0) : 0))))
     sane(await probe(Uint8Array.from({ length: 3 * 1024 * 1024 }, (_, i) => (i % 3 === 0 ? 0x4f : i % 3 === 1 ? 0x67 : 0x67)))) // "ggOggOgg..."
-    expect(performance.now() - started).toBeLessThan(4000)
+    expect(since(started)).toBeLessThan(4000)
   })
 
   it('reads a bounded amount of a file whatever its size', async () => {

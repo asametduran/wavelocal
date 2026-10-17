@@ -3,6 +3,11 @@ import type { LyricLine, Lyrics } from '../types'
 const TS = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g
 const META = /^\[(ti|ar|al|by|au|length|re|ve|id|la):/i
 
+/** No song has more lines than this; a file that does is not lyrics, and must not become millions of objects. */
+export const MAX_LINES = 20_000
+/** An offset of more than a day is nonsense (and a number of 400 digits parses to Infinity). */
+const MAX_OFFSET_SECONDS = 86_400
+
 /**
  * Parse LRC text (or plain lyrics) into { synced, lines: [{ t, text }] }.
  * Supports multiple timestamps per line, [offset:], and strips enhanced <mm:ss.xx> word tags.
@@ -13,11 +18,12 @@ export function parseLrc(text: unknown): Lyrics | null {
   const plain: LyricLine[] = []
   let offset = 0
   for (const raw of text.split(/\r?\n/)) {
+    if (out.length >= MAX_LINES || plain.length >= MAX_LINES) break
     const line = raw.trim()
     if (!line) continue
     const off = line.match(/^\[offset:\s*(-?\d+)\s*\]/i)
     if (off) {
-      offset = parseInt(off[1] ?? '0', 10) / 1000
+      offset = Math.max(-MAX_OFFSET_SECONDS, Math.min(MAX_OFFSET_SECONDS, parseInt(off[1] ?? '0', 10) / 1000))
       continue
     }
     if (META.test(line)) continue
@@ -25,6 +31,7 @@ export function parseLrc(text: unknown): Lyrics | null {
     const body = line.replace(TS, '').replace(/<\d+:\d+(?:[.:]\d+)?>/g, '').trim()
     if (stamps.length) {
       for (const m of stamps) {
+        if (out.length >= MAX_LINES) break
         const fraction = m[3]
         const frac = fraction ? parseInt(fraction, 10) / 10 ** fraction.length : 0
         out.push({ t: parseInt(m[1] ?? '0', 10) * 60 + parseInt(m[2] ?? '0', 10) + frac, text: body })

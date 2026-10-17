@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SORT_KEYS, describeSort, directionWords, parseSortSpec, sortTracks } from './sort'
 import type { SortKey, Sortable } from './sort'
+import { timed } from '../test-utils/fuzz'
 
 let counter = 0
 const t = (over: Partial<Sortable> & { title: string }): Sortable & { id: number } => ({
@@ -155,9 +156,8 @@ describe('sortTracks', () => {
 
   it('sorts 50,000 tracks in well under a second', () => {
     const items = Array.from({ length: 50_000 }, (_, i) => t({ title: `Song ${(i * 7919) % 50_000}`, artist: `Artist ${i % 800}`, album: `Album ${i % 3000}`, trackNo: i % 20, year: 1960 + (i % 60) }))
-    const started = performance.now()
-    sortTracks(items, { key: 'artist', dir: 'asc' })
-    expect(performance.now() - started).toBeLessThan(1500)
+    const { ms } = timed(() => sortTracks(items, { key: 'artist', dir: 'asc' }))
+    expect(ms).toBeLessThan(1500)
   })
 })
 

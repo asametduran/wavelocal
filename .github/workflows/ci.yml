@@ -41,8 +41,27 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
         run: npm --prefix desktop ci && npm run typecheck:desktop
 
-      - name: Unit tests
-        run: npm test
+      # One run does both: the unit tests, and the coverage thresholds in vite.config.js (a drop below them fails the build).
+      - name: Unit tests with coverage
+        run: npm run test:coverage
+
+      - name: Coverage summary
+        if: always() && hashFiles('coverage/coverage-summary.json') != ''
+        run: |
+          node -e "
+          const total = require('./coverage/coverage-summary.json').total;
+          const row = (k) => '| ' + k + ' | ' + total[k].pct + '% | ' + total[k].covered + ' of ' + total[k].total + ' |';
+          console.log(['### Unit test coverage', '', '| | | |', '|---|---|---|', ...['statements', 'branches', 'functions', 'lines'].map(row), '', 'Components, hooks and the audio engine are covered by the Playwright suite, which is not counted here.'].join('\n'));
+          " >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ github.run_id }}
+          path: coverage/
+          retention-days: 14
+          if-no-files-found: ignore
 
   e2e:
     name: End-to-end (Chromium, headless)

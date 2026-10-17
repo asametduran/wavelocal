@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { filterByQuery, fold, matches, parseQuery, searchEntry } from './search'
 import type { Searchable } from './search'
+import { timed } from '../test-utils/fuzz'
 
 const track = (over: Partial<Searchable> = {}): Searchable => ({ title: 'Song', artist: 'Artist', album: 'Album', albumArtist: '', genre: '', year: 0, path: '', file: { name: 'song.mp3' }, ...over })
 const find = (items: Searchable[], query: string): string[] => filterByQuery(items, parseQuery(query)).map((t) => t.title)
@@ -217,9 +218,8 @@ describe('searchEntry', () => {
   it('searches 20,000 tracks in well under a second', () => {
     const items = Array.from({ length: 20_000 }, (_, i) => track({ title: `Track ${i}`, artist: i % 7 === 0 ? 'Şebnem Ferah' : `Artist ${i % 500}`, album: `Album ${i % 900}`, year: 1950 + (i % 75), path: `Music/${i % 40}` }))
     find(items, 'warm up') // the entries are built on first use
-    const started = performance.now()
-    const hits = find(items, 'sebnem year:>=2000 -album:1')
-    expect(performance.now() - started).toBeLessThan(500)
+    const { result: hits, ms } = timed(() => find(items, 'sebnem year:>=2000 -album:1'))
+    expect(ms).toBeLessThan(500)
     expect(hits.length).toBeGreaterThan(0)
   })
 })

@@ -57,9 +57,20 @@ A modern dark-mode music player that runs entirely in your browser. Your files a
 | **Desktop** | Sidebar queue, centre stage, persistent controls, keyboard shortcuts |
 | **Smart TV / big screen** | 10-foot UI: 1.5x scale, high contrast, thick focus rings, D-pad (arrow keys + Enter) navigation, remote media keys and Back |
 
-- **PWA / offline** — web app manifest + service worker cache the app shell; install from the browser menu ("Add to Home Screen" / "Install"). Your audio is never cached or uploaded.
+- **PWA / offline** — the whole app is saved on the first visit, so it opens with no connection, and updates wait until you choose to reload ([details](#offline-use-updates-and-storage)); install from the browser menu ("Add to Home Screen" / "Install"). Your audio is never cached by the service worker or uploaded.
 - **Media Session** — track title, artist and artwork on lock screens and notification shades; media keys, seek and background playback.
 - **TV mode** — auto-enabled on Tizen / webOS / Android TV / Fire TV / console user agents. Force it with `?tv=1` (or `?tv=0`), or press `T`.
+
+## Offline use, updates and storage
+
+The web app saves a complete, versioned copy of itself the first time it is opened, so it starts with no connection at all, with every panel and the lossless decoder included.
+
+- **Checked, versioned and lean.** Every build has its own cache (`wavelocal-precache-<build id>`). The service worker downloads each file, checks its size and SHA-256 against the list compiled into it at build time, and only then marks the copy complete. A damaged download (a hotel Wi-Fi sign-in page answering `200`, a truncated file) fails the install and the working copy stays. A release that changes three files downloads three files; the rest is copied from the copy already on the device.
+- **Updates ask first.** A new version downloads in the background and waits. A toast (and a button under *Sound & tools → Storage*) offers **Reload**; nothing is swapped behind your back, so music is never interrupted by an update. When the new copy takes over, the old one is deleted (and the leftovers of the retired v1 worker); other sites' and apps' caches are never touched. A second window that was open meanwhile is told, and can follow.
+- **Self-healing.** If the browser clears the cache, the worker fetches the app again and stores it for next time.
+- **Only where it helps.** In the desktop app and the Android app the app already lives on the device, so neither registers a worker; the Android app also removes any worker that earlier versions registered, so none can serve an old copy.
+
+**Storage** (*Sound & tools → Storage*): the audio you add is copied into the browser's own database, so the library costs its size again. The panel shows what is used out of what the device allows (and how much of it is your music, the app's offline files, and anything else), warns when room is running out, and says whether the browser may delete the library when the device runs low on space, with a button to ask it to keep it (a backup keeps playlists and tags safe either way). It lists the largest tracks, each with a *Remove* that asks first. Adding files that would not fit asks before it starts, a save that fails because the device is full says so (and stops reading the rest), and after an import a warning appears once when storage is getting full.
 
 ## Keyboard shortcuts
 
@@ -106,12 +117,22 @@ The whole app is TypeScript with `strict`, `noUncheckedIndexedAccess` and `noImp
 
 | Command | What it runs |
 | --- | --- |
-| `npm test` | Vitest + jsdom unit tests (`src/**/*.test.ts`): LRC, loudness, metadata and ReplayGain, queue logic, contrast/focus/motion helpers, and the synthetic-audio tooling itself |
-| `npm run test:e2e` | Builds the app, then runs the Playwright suite headlessly in Chromium (`e2e/`): import, playback, seek, queue reorder, search, playlists, persistence across reloads, lyrics sync, EQ, speed, normalization, sleep timer and gapless/crossfade transitions |
+| `npm test` | Vitest + jsdom unit tests (`src/**/*.test.ts`, `scripts/`, `desktop/src/`): LRC, loudness, metadata and ReplayGain, queue logic, contrast/focus/motion helpers, the offline service worker, storage, the build scripts, the Android manifest, and the synthetic-audio tooling itself |
+| `npm run test:coverage` | The same, with V8 coverage and thresholds (`coverage` in `vite.config.js`): the pure logic in `src/lib`, the build scripts and the desktop helpers must stay above their floors, and the offline layer, storage and the parsers of untrusted input are held near 95%. CI runs this instead of `npm test` and keeps the report as an artifact. Components and the player hook are covered by the e2e suite, which is not counted here |
+| `npm run test:e2e` | Builds the app, then runs the Playwright suite headlessly in Chromium (`e2e/`): import, playback, seek, queue reorder, search, playlists, persistence across reloads, lyrics sync, EQ, speed, normalization, sleep timer and gapless/crossfade transitions; plus, with a real service worker against a server the tests can switch off, replace and sabotage, `offline.spec.ts` (offline reload, panels and decoder never opened online, updates, damaged releases, the upgrade from the retired worker) and `csp.spec.ts` (the policy is enforced and the app never breaks it) |
+| `npm run check:dist` | Holds the finished build to its promises (also the last step of `npm run build`): the page carries the Content-Security-Policy, every emitted file type is one the policy lets a page load, `sw.js` is a classic script carrying this build's id, and everything the page and its chunks refer to is part of the offline copy |
+
+**Fuzzing.** The parsers of untrusted input (LRC, backup JSON, the ID3 rewriter, M3U/PLS and their matching, pairing codes, WAV and FLAC, the search query, and the desktop shell's path and shortcut validators) each have a `*.fuzz.test.ts` that feeds them random and damaged input from a seeded generator (`src/test-utils/fuzz.ts`) and checks what must hold for any input: no throw but their own typed error, well-formed bounded output, no prototype pollution, and a time budget on pathological input (counted in CPU time, not wall time, so a busy laptop or a two-core CI runner cannot fail it). A failing case is replayed by its seed. `FUZZ_RUNS=15 npm test` runs 15 times as many cases and `FUZZ_SEED=1000` shifts the seeds, for a longer session.
 
 First-time e2e setup: `npx playwright install chromium`. No audio files are committed: every test generates synthetic WAV/ID3 data in code (`src/test-utils/`), including sine, sweep, silence, clipped and different-loudness fixtures, plus a small FLAC encoder used to build FLAC fixtures. The JavaScript FLAC decoder is also checked sample-for-sample against the browser's native decoder. The e2e tests also inspect the real Web Audio graph (filter gains, normalization gain nodes, crossfade overlap) rather than only the DOM.
 
-CI (`.github/workflows/ci.yml`) runs the typecheck, unit tests and e2e suite on every push and pull request, separately from the APK build. Playwright browsers are cached by version, and a failed e2e run uploads its traces, screenshots and HTML report as a build artifact.
+CI (`.github/workflows/ci.yml`) runs the typecheck, the unit tests with coverage thresholds and the e2e suite on every push and pull request, separately from the APK build. Playwright browsers are cached by version, and a failed e2e run uploads its traces, screenshots and HTML report as a build artifact.
+
+### Security of the build
+
+- **Content-Security-Policy.** `vite build` writes a `<meta>` policy (`scripts/csp.mjs`) straight after the charset of `index.html`: everything starts closed (`default-src 'none'`) and only what the app uses is opened, namely its own scripts, styles, worker and manifest, and `blob:` for audio and cover art. No remote host, no inline script, no `eval`, no `unsafe-inline` (inline styles are set through the CSSOM, which CSP does not restrict). `connect-src 'self'` means even a bug could not send data anywhere. `npm run check:dist` fails the build if a new kind of file is emitted that nobody decided about (a font, WebAssembly). A host should additionally send `frame-ancestors 'none'` and serve the files unmodified (the service worker verifies their checksums, so a proxy that rewrites HTML or scripts stops the offline copy from installing).
+- **Android.** `android:allowBackup="false"` plus `data_extraction_rules.xml` keep the library (the WebView's database) out of cloud backups and device transfers; `usesCleartextTraffic="false"` and a network security config refuse plain HTTP and user-installed certificates; the only permission is `INTERNET` (needed by listening together). `scripts/android-manifest.test.ts` pins all of it, since the APK cannot be built on every machine.
+- **Service worker.** `sw/sw.ts` is bundled by `scripts/precache.mjs` after every build with the build's file list (size, SHA-256, content type) compiled in; the build id is derived from that list, so identical sources give an identical worker and nobody is asked to update for nothing. The logic is in `src/lib/offline/` and is tested without a browser against an in-memory cache and a scripted network.
 
 ### Desktop app (Electron)
 
@@ -164,6 +185,8 @@ src/
 │   ├── dsp.ts            shared numeric helpers (clamp, seeded RNG, equal-power mix)
 │   ├── lrc.ts            LRC parser + active-line lookup
 │   ├── db.ts             IndexedDB wrapper (tracks + meta)
+│   ├── storage.ts        usage, quota, persistence, biggest tracks, import-fits check and the words for "storage is full" (lazy chunk)
+│   ├── offline/          the offline copy: cache naming and routing, install planning, the worker core (injected caches), the page's update controller (lazy chunk)
 │   ├── backup.ts         library backup/restore: export, validation, merge, pending restore
 │   ├── plays.ts          what counts as a play (listening-time tally)
 │   ├── smart.ts          smart playlists (recent / most played / recently played / never played)
@@ -194,6 +217,7 @@ src/
     ├── ActionsMenu.tsx   the open playlist's menu: rename, duplicate, save as a file, delete (lazy chunk)
     ├── OverlayGate.tsx, Overlays.tsx   dialogs and toasts: the gate is in the first load, the dialog and toast views are a lazy chunk
     ├── UpNextPanel.tsx   the Up Next tab: play, move, remove, clear (lazy chunk)
+    ├── StorageSection.tsx  Sound & tools → Storage: usage, protection, largest tracks, the offline copy and its updates
     ├── NowPlaying.tsx    center stage: artwork, title, empty state
     ├── PlayerBar.tsx     persistent transport + seek + volume
     ├── Slider.tsx        styled range input
@@ -204,7 +228,7 @@ State lives in a single `usePlayer` hook. Tracks are held as object URLs created
 
 ## Privacy
 
-There are no network calls beyond loading the app itself. Listening together talks only to the device you pair with, directly over your local network (no signalling or STUN servers). Close the tab and your library is gone from memory.
+There are no network calls beyond loading the app itself, and the page's Content-Security-Policy would refuse any other. Listening together talks only to the device you pair with, directly over your local network (no signalling or STUN servers). The Android app is excluded from cloud backups and device transfers, so your library stays on the device. Close the tab and your library is gone from memory.
 
 ## License
 

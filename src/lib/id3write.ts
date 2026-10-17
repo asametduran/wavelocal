@@ -120,7 +120,19 @@ export function parseId3v2(bytes: Uint8Array): ParsedTag | null {
 
 // ---- frames ----
 
-function encodeTextBody(text: string): number[] {
+/**
+ * Text as a tag can hold it. A NUL ends a value in every ID3 version, so it would cut the text short for any other player,
+ * a leading U+FEFF is read as a byte order mark and vanishes, and half of a surrogate pair has no UTF-16 form another
+ * player could read: it becomes the replacement character.
+ */
+export const storableText = (text: string): string =>
+  text
+    .replace(/\0/g, '')
+    .replace(/^﻿+/, '')
+    .replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '�')
+
+function encodeTextBody(raw: string): number[] {
+  const text = storableText(raw)
   if ([...text].every((c) => c.charCodeAt(0) < 256)) return [0, ...latin1(text)]
   const out = [1, 0xff, 0xfe]
   for (let i = 0; i < text.length; i++) {

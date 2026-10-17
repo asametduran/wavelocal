@@ -201,18 +201,50 @@ const extensionless = (name: string): string => {
   return dot > 0 ? name.slice(0, dot) : name
 }
 
-/** How many folders, counting from the file outwards, two paths share. */
-function sharedFolders(a: readonly string[], b: readonly string[]): number {
-  let n = 0
-  while (n < a.length && n < b.length && a[a.length - 1 - n] === b[b.length - 1 - n]) n++
-  return n
-}
-
 interface Item {
   id: string
   folders: string[]
   title: string
   artist: string
+}
+
+interface FolderNode {
+  children: Map<string, FolderNode>
+  /** Every item whose folders end with the chain that leads to this node, in library order. */
+  items: Item[]
+}
+
+/**
+ * The tracks that share one file name, arranged by their folders read from the file outwards (a tree whose first step is the
+ * folder the file is in). Choosing between same-named files by how many folders they share with a playlist's path is then
+ * one walk down the tree instead of a comparison with every one of them, which matters when thousands of files are called
+ * `track.mp3` and a playlist of tens of thousands of lines names them.
+ */
+class SameName {
+  private readonly root: FolderNode = { children: new Map(), items: [] }
+
+  add(item: Item): void {
+    let node = this.root
+    node.items.push(item)
+    for (let i = item.folders.length - 1; i >= 0; i--) {
+      const name = item.folders[i] as string
+      let child = node.children.get(name)
+      if (!child) node.children.set(name, (child = { children: new Map(), items: [] }))
+      node = child
+      node.items.push(item)
+    }
+  }
+
+  /** The items sharing the most folders (counting from the file outwards) with `folders`, in library order. */
+  closest(folders: readonly string[]): readonly Item[] {
+    let node = this.root
+    for (let i = folders.length - 1; i >= 0; i--) {
+      const child = node.children.get(folders[i] as string)
+      if (!child) break
+      node = child
+    }
+    return node.items
+  }
 }
 
 /**
@@ -221,23 +253,27 @@ interface Item {
  * playlist gives, which is only trusted when exactly one track fits. A match is never guessed between titles.
  */
 export function matchEntries(entries: readonly PlaylistEntry[], tracks: readonly MatchTrack[]): MatchResult {
-  const byName = new Map<string, Item[]>()
-  const byStem = new Map<string, Item[]>()
+  const byName = new Map<string, SameName>()
+  const byStem = new Map<string, SameName>()
   const byTitle = new Map<string, Item[]>()
   const folderCache = new Map<string, string[]>()
-  const add = (map: Map<string, Item[]>, key: string, item: Item): void => {
-    const list = map.get(key)
-    if (list) list.push(item)
-    else map.set(key, [item])
+  const group = (map: Map<string, SameName>, key: string): SameName => {
+    let same = map.get(key)
+    if (!same) map.set(key, (same = new SameName()))
+    return same
   }
   for (const t of tracks) {
     let folders = folderCache.get(t.path)
     if (!folders) folderCache.set(t.path, (folders = pathSegments(t.path)))
     const name = fold(t.file.name).trim()
     const item: Item = { id: t.id, folders, title: fold(t.title).trim(), artist: fold(t.artist).trim() }
-    add(byName, name, item)
-    add(byStem, extensionless(name), item)
-    if (item.title) add(byTitle, item.title, item)
+    group(byName, name).add(item)
+    group(byStem, extensionless(name)).add(item)
+    if (item.title) {
+      const list = byTitle.get(item.title)
+      if (list) list.push(item)
+      else byTitle.set(item.title, [item])
+    }
   }
 
   const ids: string[] = []
@@ -253,19 +289,11 @@ export function matchEntries(entries: readonly PlaylistEntry[], tracks: readonly
     const tagged = (item: Item): boolean => !!title && item.title === title && (!artist || item.artist === artist)
 
     let found: Item | undefined
-    const candidates = name ? (byName.get(name) ?? byStem.get(extensionless(name))) : undefined
-    if (candidates?.length) {
-      const folders = segments.slice(0, -1)
-      let best = -1
-      let top: Item[] = []
-      for (const c of candidates) {
-        const score = sharedFolders(folders, c.folders)
-        if (score > best) {
-          best = score
-          top = [c]
-        } else if (score === best) top.push(c)
-      }
-      found = top.find(tagged) ?? top[0]
+    const same = name ? (byName.get(name) ?? byStem.get(extensionless(name))) : undefined
+    if (same) {
+      // the folders decide between files of the same name; the tags the playlist gives only break a tie between equally close ones
+      const top = same.closest(segments.slice(0, -1))
+      found = title ? (top.find(tagged) ?? top[0]) : top[0]
     } else if (title) {
       const fits = (byTitle.get(title) ?? []).filter((item) => !artist || item.artist === artist)
       if (fits.length === 1) found = fits[0]

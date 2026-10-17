@@ -12,6 +12,7 @@ import HotkeysSection from './HotkeysSection'
 import ReverbSection from './ReverbSection'
 import ShareSection from './ShareSection'
 import SpatialSection from './SpatialSection'
+import StorageSection from './StorageSection'
 import type { CSSProperties } from 'react'
 import type { PlayerApi, TransitionMode } from '../types'
 
@@ -73,6 +74,8 @@ export default function ToolsModal({ p, open, onClose, accent, setAccent }: Tool
         <ShareSection />
 
         <BackupSection p={p} />
+
+        <StorageSection p={p} />
 
         <HotkeysSection />
 

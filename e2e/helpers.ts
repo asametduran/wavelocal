@@ -112,10 +112,28 @@ export interface AudioProbe {
   workers: number
 }
 
+/** A request or script the page's Content-Security-Policy blocked, as the browser reported it. */
+export interface PolicyViolation {
+  directive: string
+  blocked: string
+  sample: string
+}
+
 declare global {
   interface Window {
     __probe: AudioProbe
+    __csp: PolicyViolation[]
   }
+}
+
+/** Record every Content-Security-Policy violation of the page (must run before the page loads). */
+export async function installPolicyWatch(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    window.__csp = []
+    document.addEventListener('securitypolicyviolation', (event) => {
+      window.__csp.push({ directive: event.effectiveDirective, blocked: event.blockedURI, sample: event.sample })
+    })
+  })
 }
 
 export const GAIN = {
@@ -329,8 +347,14 @@ export class PlayerPage {
 
   async open(): Promise<void> {
     await installAudioProbe(this.page)
+    await installPolicyWatch(this.page)
     await this.page.goto('/')
     await this.ready()
+  }
+
+  /** What the page's Content-Security-Policy has blocked so far: an app that stays inside its policy has none. */
+  async policyViolations(): Promise<PolicyViolation[]> {
+    return this.page.evaluate(() => window.__csp ?? [])
   }
 
   async reload(): Promise<void> {

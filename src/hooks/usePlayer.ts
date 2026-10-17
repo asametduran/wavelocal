@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AudioEngine, EQ_PRESETS } from '../lib/engine'
 import * as db from '../lib/db'
 import { estimateGainDb } from '../lib/loudness'
-import { buildTrack, lrcFromFile, norm, revokeTrack } from '../lib/metadata'
+import { buildTrack, isAudioFile, lrcFromFile, norm, revokeTrack } from '../lib/metadata'
 import { importFiles } from '../lib/importer'
 import { analyzeOnDemand } from '../lib/analyzeOnDemand'
 import { needsUpgrade, upgradeLibrary, upgradePatch } from '../lib/upgrade'
@@ -12,7 +12,7 @@ import { contextQueue, mergeTrackIds, moveItem, nextAfterRemoval, nextRepeat, pi
 import { parseSortSpec } from '../lib/sort'
 import type { SortSpec } from '../lib/sort'
 import { viewTracks } from '../lib/view'
-import { toast } from '../lib/overlays'
+import { confirmDialog, toast } from '../lib/overlays'
 import { cleanName, copyName, restorePlaylist } from '../lib/playlists'
 import { continueAfter, dequeueAt, keepKnown, moveQueued, queueLast, queueNext, requeueAt, resumeAfterQueued, takeQueued, unqueue } from '../lib/upnext'
 import type { Resume, Taken } from '../lib/upnext'
@@ -31,6 +31,56 @@ import type { DynamicsPatch, DynamicsSettings, EqBand, EqPreset, ImportProgress,
 
 // Backups are rare: the code that makes, reads and restores them is only fetched when one is needed.
 const loadBackup = () => import('../lib/backup')
+
+// The storage checks only matter when an import runs or a save fails, so they are not part of the start-up code either.
+const loadStorage = () => import('../lib/storage')
+
+/** What to tell the listener when a save failed: out of space gets its own advice, anything else the `fallback`. */
+async function saveFailureText(error: unknown, fallback: string): Promise<string> {
+  try {
+    return (await loadStorage()).describeSaveFailure(error, fallback)
+  } catch {
+    return fallback
+  }
+}
+
+/** With no room left on the device, reading the rest of an import would only fail the same way. */
+async function stopWhenFull(error: unknown, stop: () => void): Promise<void> {
+  try {
+    if ((await loadStorage()).isQuotaError(error)) stop()
+  } catch {
+    // keep importing
+  }
+}
+
+/** Ask before an import that will not fit in the room the device has left. Resolves false if the listener says no. */
+async function hasRoomFor(files: readonly File[]): Promise<boolean> {
+  try {
+    const { readEstimate, importFit, formatBytes } = await loadStorage()
+    const fit = importFit(files.filter(isAudioFile).map((file) => file.size), await readEstimate())
+    if (fit.fits) return true
+    return await confirmDialog({
+      title: 'Not enough room?',
+      message: `These files are about ${formatBytes(fit.needed)}, and this device has about ${formatBytes(fit.free)} left for Wavelocal. Wavelocal keeps its own copy of every track you add. Add them anyway?`,
+      confirmLabel: 'Add anyway',
+    })
+  } catch {
+    return true // never block an import because the check itself failed
+  }
+}
+
+/** After an import: say so, once per level, when storage is getting full. */
+async function warnIfLow(notify: (text: string) => void): Promise<void> {
+  try {
+    const { assessStorage, readEstimate, readPersisted, shouldWarn, warningFor } = await loadStorage()
+    const assessment = assessStorage(await readEstimate())
+    if (!shouldWarn(assessment.level)) return
+    const warning = warningFor(assessment, await readPersisted())
+    if (warning) notify(warning.text)
+  } catch {
+    // the warning is a courtesy
+  }
+}
 
 const clamp = (v: number, a: number, b: number): number => Math.min(b, Math.max(a, v))
 const NO_TRACKS: readonly Track[] = []
@@ -550,7 +600,7 @@ export function usePlayer(): PlayerApi {
       })
       s.tracks = next
       setTracks(next)
-      db.putTracks(changed).catch(() => notify('Could not save the restored data (storage blocked or full)'))
+      db.putTracks(changed).catch((error: unknown) => void saveFailureText(error, 'Could not save the restored data (storage blocked or full)').then(notify))
     }
     setPlaylists(r.playlists)
     setTrackEq(r.trackEq)
@@ -596,7 +646,7 @@ export function usePlayer(): PlayerApi {
     const cleared = state.current.tracks.filter((t) => t.plays || t.lastPlayedAt)
     if (!cleared.length) return
     setTracks((l) => l.map((t) => (t.plays || t.lastPlayedAt ? { ...t, plays: 0, lastPlayedAt: null } : t)))
-    db.putTracks(cleared.map((t) => ({ ...t, plays: 0, lastPlayedAt: null }))).catch(() => notify('Could not save the reset (storage blocked or full)'))
+    db.putTracks(cleared.map((t) => ({ ...t, plays: 0, lastPlayedAt: null }))).catch((error: unknown) => void saveFailureText(error, 'Could not save the reset (storage blocked or full)').then(notify))
   }, [notify])
 
   const setVolume = useCallback((v: number) => {
@@ -660,9 +710,9 @@ export function usePlayer(): PlayerApi {
     }
     try {
       await db.putTracks([updated])
-    } catch {
+    } catch (error) {
       if (res.coverChanged && cover) URL.revokeObjectURL(cover)
-      return { ok: false, error: 'Could not save to the offline library (storage blocked or full)' }
+      return { ok: false, error: await saveFailureText(error, 'Could not save to the offline library (storage blocked or full)') }
     }
     // `url` stays: the audio is identical, so playback is not interrupted
     state.current.tracks = state.current.tracks.map((x) => (x.id === id ? updated : x))
@@ -677,7 +727,7 @@ export function usePlayer(): PlayerApi {
    * being read, so a big folder shows up at once and survives being cancelled or closed halfway.
    */
   const importOne = useCallback(
-    async (files: File[], signal: AbortSignal): Promise<number> => {
+    async (files: File[], signal: AbortSignal, stop: () => void): Promise<number> => {
       const epoch = libraryEpoch.current
       const existing = new Set(state.current.tracks.map((t) => t.key))
       let firstBatch = true
@@ -705,10 +755,11 @@ export function usePlayer(): PlayerApi {
             setViewId('all')
             navigator.storage?.persist?.().catch?.(() => {})
           }
-          db.putTracks(added).catch(() => {
+          db.putTracks(added).catch((error: unknown) => {
             if (saveFailed) return
             saveFailed = true
-            notify('Could not save to the offline library (storage blocked or full)')
+            void saveFailureText(error, 'Could not save to the offline library (storage blocked or full)').then(notify)
+            void stopWhenFull(error, stop)
           })
           const head = added[0]
           if (wasEmpty && head && !state.current.currentId) load(head, false)
@@ -732,6 +783,7 @@ export function usePlayer(): PlayerApi {
         const added = n ? `${n} ${n === 1 ? 'track' : 'tracks'} added` : 'Nothing new'
         announce(result.duplicates ? `${added}, ${result.duplicates} already in your library` : added)
       }
+      if (n) void warnIfLow(notify)
       return n
     },
     [load, notify, resolveNow, updateLyrics],
@@ -744,7 +796,7 @@ export function usePlayer(): PlayerApi {
       importAborts.current.add(controller)
       importsPending.current++
       setLoading(true)
-      const run = importChain.current.then(() => importOne(files, controller.signal))
+      const run = importChain.current.then(async () => ((await hasRoomFor(files)) ? importOne(files, controller.signal, () => controller.abort()) : 0))
       importChain.current = run.catch(() => undefined)
       return run.finally(() => {
         importAborts.current.delete(controller)
@@ -761,13 +813,10 @@ export function usePlayer(): PlayerApi {
     importAborts.current.forEach((controller) => controller.abort())
   }, [])
 
-  const remove = useCallback(
+  /** Take a track out of the library for good: its audio and artwork, its play counts and equalizer, its place in every playlist. */
+  const removeFromLibrary = useCallback(
     (id: string) => {
       const s = state.current
-      if (s.viewId !== 'all') {
-        setPlaylists((l) => l.map((p) => (p.id === s.viewId ? { ...p, trackIds: p.trackIds.filter((x) => x !== id) } : p)))
-        return
-      }
       const list = s.tracks
       const t = list.find((x) => x.id === id)
       if (!t) return
@@ -797,6 +846,16 @@ export function usePlayer(): PlayerApi {
       db.deleteTrack(id).catch(() => {})
     },
     [cancelTransition, commitUpNext, getEl, load, resolver],
+  )
+
+  /** In the library this deletes the track; inside a playlist it only takes the track out of that playlist. */
+  const remove = useCallback(
+    (id: string) => {
+      const s = state.current
+      if (s.viewId === 'all') return removeFromLibrary(id)
+      setPlaylists((l) => l.map((p) => (p.id === s.viewId ? { ...p, trackIds: p.trackIds.filter((x) => x !== id) } : p)))
+    },
+    [removeFromLibrary],
   )
 
   const clear = useCallback(() => {
@@ -1478,7 +1537,7 @@ export function usePlayer(): PlayerApi {
     upNext: upNextTracks, playNext, addToQueue, removeFromUpNext, moveInUpNext, clearUpNext, playUpNext,
     loading, importProgress, cancelImport, upgradeProgress, hydrated, decoding,
     play, playFrom, toggle, next: () => next(false), prev, seek, position: () => getEl().currentTime, seekBy, setVolume, volumeBy, toggleMute,
-    cycleRepeat, toggleShuffle, addFiles, attachLrc, editTags, remove, clear, reorder,
+    cycleRepeat, toggleShuffle, addFiles, attachLrc, editTags, remove, removeFromLibrary, clear, reorder,
     createPlaylist, addToPlaylist, addTracksToPlaylist, renamePlaylist, duplicatePlaylist, deletePlaylist, resetPlays,
     exportBackup, previewBackup, applyBackup, pendingRestoreCount: pendingRestore?.tracks.length ?? 0, discardPendingRestore,
   }

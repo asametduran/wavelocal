@@ -196,13 +196,15 @@ test.describe('sound tools', () => {
       await page.clock.install() // fake timers: the 15-minute timer fires on demand
 
       await app.openTools()
+      // the countdown is the timer section's own live region: other sections of the dialog (Storage) have status lines too
+      const countdown = app.tools.getByRole('region', { name: 'Sleep timer' }).getByRole('status')
       await app.tools.getByRole('button', { name: '30 min' }).click()
-      await expect(app.tools.getByRole('status')).toContainText('Stopping in 30:00')
+      await expect(countdown).toContainText('Stopping in 30:00')
       await app.tools.getByRole('button', { name: 'Off', exact: true }).click()
-      await expect(app.tools.getByRole('status')).toHaveCount(0)
+      await expect(countdown).toHaveCount(0)
 
       await app.tools.getByRole('button', { name: '15 min' }).click()
-      await expect(app.tools.getByRole('status')).toContainText('Stopping in 15:00')
+      await expect(countdown).toContainText('Stopping in 15:00')
       await app.closeTools()
       await app.expectPlaying()
 

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Wavelocal never talks to a server: the app is served from files inside the APK. Refuse plain-text HTTP outright and
+  trust only the system certificate store, so no certificate a person (or a piece of malware) installed can be used to
+  read or change what the WebView loads.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -16,6 +16,7 @@ import {
   serializeBackup,
 } from './backup'
 import type { Backup, BackupTrack, PendingRestore } from './backup'
+import { timed } from '../test-utils/fuzz'
 
 function track(id: string, over: Partial<Track> = {}): Track {
   return {
@@ -366,11 +367,10 @@ describe('planRestore', () => {
   it('handles a large library quickly', () => {
     const many = Array.from({ length: 20_000 }, (_, i) => track(`t${i}`))
     const backup = buildBackup(many, [pl('p', 'All', many.map((t) => t.id))], {}, NOW)
-    const started = performance.now()
-    const plan = planRestore(backup, many, [], {}, null, newId)
+    const { result: plan, ms } = timed(() => planRestore(backup, many, [], {}, null, newId))
     expect(plan.summary).toMatchObject({ matched: 20_000, waiting: 0 })
     expect(plan.playlists[0]?.trackIds).toHaveLength(20_000)
-    expect(performance.now() - started).toBeLessThan(3000)
+    expect(ms).toBeLessThan(3000)
   })
 })
 

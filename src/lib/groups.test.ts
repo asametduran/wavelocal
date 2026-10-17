@@ -3,6 +3,7 @@ import { ALBUM_SORTS, describeAlbumSort, filterGroups, getGroups, groupAlbums, g
 import type { Groupable } from './groups'
 import { parseQuery } from './search'
 import type { Searchable } from './search'
+import { timed } from '../test-utils/fuzz'
 
 let n = 0
 const t = (over: Partial<Groupable> & { title: string }): Groupable => ({
@@ -278,9 +279,8 @@ describe('group ids and the shared index', () => {
 
   it('groups 20,000 tracks in well under a second', () => {
     const big = Array.from({ length: 20_000 }, (_, i) => t({ title: `T${i}`, album: `Album ${i % 1500}`, artist: `Artist ${i % 600}`, trackNo: (i % 15) + 1, year: 1970 + (i % 50) }))
-    const started = performance.now()
-    const groups = getGroups(big)
-    expect(performance.now() - started).toBeLessThan(1500)
+    const { result: groups, ms } = timed(() => getGroups(big))
+    expect(ms).toBeLessThan(1500)
     expect(groups.albums.length).toBeGreaterThan(1000)
   })
 })

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { seededRandom } from './dsp'
 import { MAX_ENTRIES, decodePlaylist, entryPath, isPlaylistFile, matchEntries, parsePlaylist, pathSegments, playlistFileName, serializeM3u, serializePls } from './playlistfiles'
 import type { MatchTrack, PlaylistEntry } from './playlistfiles'
+import { timed } from '../test-utils/fuzz'
 
 const utf8 = (text: string): Uint8Array => new TextEncoder().encode(text)
 const entry = (path: string, over: Partial<PlaylistEntry> = {}): PlaylistEntry => ({ path, title: '', artist: '', duration: 0, ...over })
@@ -251,9 +252,8 @@ describe('matchEntries', () => {
   it('matches thousands of entries against tens of thousands of tracks quickly', () => {
     const big = Array.from({ length: 20_000 }, (_, i) => track(`b${i}`, `Music/Folder ${i % 200}`, `Song ${i}.mp3`, `Song ${i}`, `Artist ${i % 300}`))
     const entries = Array.from({ length: 5_000 }, (_, i) => entry(`D:\\Backup\\Music\\Folder ${(i * 7) % 200}\\Song ${i * 4}.mp3`))
-    const started = performance.now()
-    const result = matchEntries(entries, big)
-    expect(performance.now() - started).toBeLessThan(1500)
+    const { result, ms } = timed(() => matchEntries(entries, big))
+    expect(ms).toBeLessThan(1500)
     expect(result.ids.length + result.missing.length + result.duplicates).toBe(5_000)
     expect(result.ids.length).toBeGreaterThan(1000)
   })

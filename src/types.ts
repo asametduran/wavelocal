@@ -373,7 +373,10 @@ export interface PlayerApi {
    * written into the stored copy of the file. Never rejects: failures come back as `{ ok: false, error }`.
    */
   editTags: (id: string, edit: TagEdit) => Promise<TagEditOutcome>
+  /** In the library this deletes the track; inside a playlist it only takes the track out of that playlist. */
   remove: (id: string) => void
+  /** Delete a track from the library whatever list is on screen: its audio, play counts, equalizer and place in every playlist. */
+  removeFromLibrary: (id: string) => void
   clear: () => void
   reorder: (from: number, to: number) => void
   createPlaylist: (name?: string, trackIds?: string[]) => string
