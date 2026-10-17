@@ -7,11 +7,13 @@ import { useBookmarkState, useBookmarks } from '../hooks/useBookmarks'
 import { useChapters } from '../hooks/useChapters'
 import { isBackKey } from '../hooks/useHotkeys'
 import { useInertPage } from '../hooks/useInertPage'
+import { useIsLongForm, useProgress } from '../hooks/useProgress'
 import { openBackLayer } from '../lib/backlayer'
 import { chapterIndexAt } from '../lib/chapters/navigate'
 import { countLabel, dotted, formatTime } from '../lib/format'
 import { deleteMark, markHere, renameMark } from '../lib/listening/bookmarkcontrol'
-import { listeningService } from '../lib/listening/instance'
+import { listeningService, progressService } from '../lib/listening/instance'
+import type { Mode } from '../lib/listening/progress'
 import type { Bookmark } from '../lib/listening/types'
 import type { PlayerApi } from '../types'
 
@@ -29,6 +31,21 @@ interface ChaptersModalProps {
 }
 
 const rowButton = 'grid h-8 w-8 shrink-0 place-items-center rounded-full text-zinc-400 transition hover:text-white active:scale-95'
+const MODES: readonly (readonly [id: Mode, label: string])[] = [
+  ['auto', 'Automatic'],
+  ['always', 'Always'],
+  ['never', 'Never'],
+]
+const chip = (on: boolean) => `rounded-full px-4 py-2 text-sm font-semibold transition ${on ? 'bg-accent text-on-accent' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`
+
+/** What the choice made for a track means for it now, in a sentence. */
+function rememberingSaid(mode: Mode, long: boolean): string {
+  if (mode === 'always') return 'Always: where you stop and the speed you choose are kept for this track.'
+  if (mode === 'never') return 'Never: this track always starts from the beginning, at your usual speed.'
+  return long
+    ? 'Automatic: this track counts as a long recording, so where you stop and the speed you choose are kept.'
+    : 'Automatic: this track is not long enough to count as a long recording (the length is chosen in Sound & tools), so it starts from the beginning.'
+}
 
 export default function ChaptersModal({ p, open, onClose }: ChaptersModalProps) {
   const dialog = useRef<HTMLDivElement>(null)
@@ -40,6 +57,10 @@ export default function ChaptersModal({ p, open, onClose }: ChaptersModalProps) 
   const chapters = state.status === 'ready' ? state.chapters : []
   const marksState = useBookmarkState(key)
   const marks = useBookmarks(key)
+  const placeId = useId()
+  const progress = useProgress(key)
+  const mode = progress?.mode ?? 'auto'
+  const long = useIsLongForm(p.current, p.duration || p.current?.duration || 0)
   const playing = chapterIndexAt(chapters, p.time)
   // declared before the dialog hook: on closing, the page is let back in before focus is returned to it
   useInertPage(open)
@@ -52,6 +73,7 @@ export default function ChaptersModal({ p, open, onClose }: ChaptersModalProps) 
   }, [open, chapters.length]) // eslint-disable-line react-hooks/exhaustive-deps
   const chapterKeys = useRovingKeys({ items: '[data-chapter]', orientation: 'vertical' })
   const bookmarkKeys = useRovingKeys({ items: '[data-bookmark]', orientation: 'vertical' })
+  const modeKeys = useRovingKeys({ items: '[role="radio"]', activate: true })
 
   // a bookmark that is deleted takes the focus with it: it goes to the one that took its place, or to the button that adds one
   const refocus = useRef<number | null>(null)
@@ -88,6 +110,10 @@ export default function ChaptersModal({ p, open, onClose }: ChaptersModalProps) 
   }
   const rename = (mark: Bookmark) => {
     if (key) void renameMark(listeningService, key, mark)
+  }
+  // "never" is a request to forget: the place and the speed kept for this track go with the choice
+  const chooseMode = (next: Mode) => {
+    if (key) progressService.save(key, next === 'never' ? { mode: next, t: null, speed: null } : { mode: next })
   }
   const onMarkKey = (e: KeyboardEvent<HTMLElement>, mark: Bookmark, index: number) => {
     if (e.key === 'F2') rename(mark)
@@ -211,6 +237,22 @@ export default function ChaptersModal({ p, open, onClose }: ChaptersModalProps) 
                 {marksState.status === 'error' ? 'The bookmarks of this track could not be read.' : 'No bookmarks yet. Press B while it plays to mark a place.'}
               </p>
             )}
+          </section>
+
+          <section aria-labelledby={placeId}>
+            <h3 id={placeId} className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+              Where you stopped
+            </h3>
+            <div role="radiogroup" aria-label="Remember where I stop in this track" onKeyDown={modeKeys} className="flex flex-wrap gap-2">
+              {MODES.map(([id, label]) => (
+                <button key={id} type="button" role="radio" aria-checked={mode === id} tabIndex={mode === id ? 0 : -1} onClick={() => chooseMode(id)} className={chip(mode === id)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-zinc-400" data-testid="remembering">
+              {[rememberingSaid(mode, long), progress?.t != null && `Saved place ${formatTime(progress.t)}.`, progress?.speed != null && `Speed for this track ${progress.speed}x.`].filter(Boolean).join(' ')}
+            </p>
           </section>
         </div>
       </div>

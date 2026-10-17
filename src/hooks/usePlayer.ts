@@ -15,6 +15,7 @@ import { viewTracks } from '../lib/view'
 import { confirmDialog, toast } from '../lib/overlays'
 import { cleanName, copyName, restorePlaylist } from '../lib/playlists'
 import { continueAfter, dequeueAt, keepKnown, moveQueued, queueLast, queueNext, requeueAt, resumeAfterQueued, takeQueued, unqueue } from '../lib/upnext'
+import { mediaSkip } from '../lib/mediaskip'
 import type { Resume, Taken } from '../lib/upnext'
 import type { Backup, PendingRestore, ResolveResult, RestoreSummary } from '../lib/backup'
 import { PlayTally } from '../lib/plays'
@@ -1570,8 +1571,8 @@ export function usePlayer(): PlayerApi {
     set('stop', () => getEl().pause())
     set('previoustrack', () => prev())
     set('nexttrack', () => next(false))
-    set('seekbackward', (d) => seekBy(-(d.seekOffset || 10)))
-    set('seekforward', (d) => seekBy(d.seekOffset || 10))
+    set('seekbackward', (d) => seekBy(-(d.seekOffset || mediaSkip.back)))
+    set('seekforward', (d) => seekBy(d.seekOffset || mediaSkip.forward))
     set('seekto', (d) => {
       if (d.seekTime != null) seek(d.seekTime)
     })

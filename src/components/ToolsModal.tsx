@@ -9,6 +9,7 @@ import BackupSection from './BackupSection'
 import DynamicsSection from './DynamicsSection'
 import EqSection from './EqSection'
 import HotkeysSection from './HotkeysSection'
+import LongFormSection from './LongFormSection'
 import ReverbSection from './ReverbSection'
 import ShareSection from './ShareSection'
 import SpatialSection from './SpatialSection'
@@ -166,6 +167,8 @@ export default function ToolsModal({ p, open, onClose, accent, setAccent }: Tool
         </section>
 
         <SeekBarSection />
+
+        <LongFormSection />
 
         <section aria-label="Sleep timer" className="mt-6">
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">

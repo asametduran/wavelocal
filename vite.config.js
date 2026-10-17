@@ -8,7 +8,7 @@ import { offline } from './scripts/vite-plugin-offline.mjs'
 const LAZY_ONLY_ICONS = [
   'accessibility', 'activity', 'audio-waveform', 'bookmark', 'bookmark-plus', 'chevron-left', 'chevron-right', 'columns-2', 'copy', 'database-backup', 'download', 'folder',
   'gauge', 'hard-drive', 'image-plus', 'keyboard', 'list-end', 'list-start', 'locate-fixed', 'moon', 'orbit', 'palette', 'radio',
-  'refresh-cw', 'shield-alert', 'shield-check', 'sliders-vertical', 'undo-2', 'waves',
+  'refresh-cw', 'rotate-ccw', 'rotate-cw', 'shield-alert', 'shield-check', 'sliders-vertical', 'undo-2', 'waves',
 ]
 
 // base './' keeps the build portable (static hosts, sub-paths, file shares) and the PWA scope relative.

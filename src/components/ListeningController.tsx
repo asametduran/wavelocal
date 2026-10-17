@@ -1,4 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useLongForm } from '../hooks/useLongForm'
 import { isTyping } from '../hooks/useHotkeys'
 import { useChapters } from '../hooks/useChapters'
 import { announce } from '../lib/a11y'
@@ -30,6 +31,7 @@ const ANNOUNCE_AFTER_MS = 400
 export default function ListeningController({ p }: { p: PlayerApi }) {
   const latest = useRef(p)
   latest.current = p
+  useLongForm(p)
   const { current, hydrated } = p
   const id = current?.id
   const file = current?.file

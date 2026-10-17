@@ -208,6 +208,41 @@ budget is raised only as the last resort and the commit says so.
 | Hostile tags (`CHAP` bombs, huge text) | bounded reads, counts and lengths; seeded fuzz tests; titles sanitised |
 | Old window open during an update | no IndexedDB version bump; new keys are additive and ignored by old code |
 
+## Stage 4 as built (where it differs from the design above)
+
+- **Where a place is kept.** Not in `listen:<key>`: a place is written every five seconds while a recording plays, and rewriting a
+  record that can hold 200 bookmarks each time would be wasteful and would put the bookmarks at risk of a failed write. It is
+  `heard:<library key>` = `{ v: 1, at, t, speed, mode }` in `meta` (`lib/listening/progress*.ts`): still no schema change, still
+  keyed by `name|size|modified` so it outlives removing and adding the file, and not in the backup. A record with nothing to
+  remember is not kept; places nobody came back to for 180 days (or beyond the 400 most recent) are forgotten when the browser is
+  idle, a choice made for a track (`always`, `never`) never is.
+- **The rules are one object.** `LongFormSession` (`lib/listening/session.ts`) is told what the player does (`update`, a few
+  times a second) and answers through a port (seek, speed, toast, clock, the usual speed): no timer, no database and no React
+  inside, so the unit tests wind a clock by hand. `hooks/useLongForm.ts` lends it the player and is the only place with effects.
+- **A place is the beginning or the end of nothing.** Before 5 s or within 15 s of the end the place is forgotten, and a place is
+  only kept for a track that was played during the visit (opening a track and leaving it never moves its place: the 3 s rewind
+  would otherwise creep back with every visit).
+- **Nothing is kept while the playhead has not arrived.** After the session sends the playhead to the place, what the player
+  reports (still the start, on a slow disk) is not where the person is, so nothing is written until it has reached the place or
+  plays on from somewhere else.
+- **The first track of a page is always taken up.** The player puts its playhead back where it left it as soon as the file is
+  read, which happens before this lazy code runs (or after it, on a fast machine): a rule that looked at the playhead made the
+  resume a race, found by the first e2e run. Later tracks are taken up only while their playhead is still at the start.
+- **Speed.** A speed the person chooses on a long recording is kept for it; on anything else it becomes the usual speed
+  (`wl.usualspeed`, kept apart: the player's own saved speed is whatever the last track needed). A change of speed is told from the
+  session's own by looking at whether it differs from the report before and from what the session asked for.
+- **Shared sessions.** A guest follows the host's track, place and speed, none of which is the guest's own listening: the hook
+  gives the session no track then (it keeps the place of the one that was playing and stands down).
+- **Media Session.** The player already registered `seekbackward` and `seekforward` with a 10 s default; it now reads the step
+  from `lib/mediaskip.ts` (start-up chunk, a few lines), which `useLongForm` sets to 15 and 30 while a long recording is current.
+  A step the platform sends with the button still wins.
+- **Surfaces.** The skip buttons flank the loop and bookmark group (not inside it, so its name and every stage 3 test stand); the
+  choice for one track (Automatic, Always, Never; Never forgets what was kept) is in the chapters dialog; the length is chosen in
+  Sound & tools under *Long recordings*, with a *Forget saved places* button that says how many recordings it is about.
+- **Budget.** Initial JS stays at 124.6 of 125 kB. A first build gave 124.9: importing `RovingGroup` into the chapters dialog
+  changed which lazy chunks share `useA11y`, and the bundler split `a11y` out of the entry chunk (a chunk of its own costs more
+  than the module did). The dialog uses `useRovingKeys` directly instead.
+
 ## Calls made without asking
 
 Threshold default of 20 minutes; 3 s rewind on resume; skip 15/30 s; 1,024 buckets; dB scale of 50 dB; 400 position-only entries;

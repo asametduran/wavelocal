@@ -1,5 +1,7 @@
 import { createChoicePref, deviceStorage, followOtherWindows } from '../choicepref'
 import type { StorageLike } from '../choicepref'
+import { parseThreshold } from './progress'
+import type { ThresholdId } from './progress'
 
 /**
  * When the row of loop and bookmark buttons shows under the seek bar: "auto" (for a recording that has chapters, a loop, bookmarks
@@ -17,3 +19,12 @@ export const createToolsRowPref = (storage: () => StorageLike | null) => createC
 export const toolsRow = createToolsRowPref(deviceStorage)
 
 followOtherWindows(TOOLS_ROW_KEY, toolsRow.refresh)
+
+/** From how long a track is a long recording whose place and speed are remembered (see `progress.ts`): twenty minutes unless chosen otherwise. */
+export const LONG_FORM_KEY = 'wl.longform'
+
+export const createLongFormPref = (storage: () => StorageLike | null) => createChoicePref<ThresholdId>(LONG_FORM_KEY, parseThreshold, storage)
+
+export const longFormThreshold = createLongFormPref(deviceStorage)
+
+followOtherWindows(LONG_FORM_KEY, longFormThreshold.refresh)

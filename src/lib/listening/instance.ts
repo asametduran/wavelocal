@@ -1,5 +1,6 @@
 import { toast } from '../overlays'
 import { idbKeyValue } from '../rawdb'
+import { ProgressService } from './progressservice'
 import { ListeningService } from './service'
 
 /** An id for a new bookmark; it only has to be different from the others of the same track. */
@@ -16,3 +17,20 @@ export const listeningService = new ListeningService({
   newId: newBookmarkId,
   onSaveError: () => toast('Your bookmarks could not be saved on this device (the storage is full or blocked). They stay until the app is closed.'),
 })
+
+/** The page's one record of where the person stopped in each long recording, and the speed it plays at (see `progressservice.ts`). */
+export const progressService = new ProgressService({
+  kv: idbKeyValue,
+  now: Date.now,
+  onSaveError: () => toast('Where you stopped could not be saved on this device (the storage is full or blocked).'),
+})
+
+let pruned = false
+/** Once per page, when the browser is idle: forget the places nobody came back to for half a year (see `ProgressService.prune`). */
+export function pruneProgressOnce(): void {
+  if (pruned) return
+  pruned = true
+  const run = () => void progressService.prune().catch(() => {})
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 10_000 })
+  else setTimeout(run, 5000)
+}

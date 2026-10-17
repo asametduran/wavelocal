@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { TOOLS_ROW_KEY, createToolsRowPref, parseToolsRow } from './prefs'
+import { LONG_FORM_KEY, TOOLS_ROW_KEY, createLongFormPref, createToolsRowPref, parseToolsRow } from './prefs'
 import type { StorageLike } from '../choicepref'
 
 function fakeStorage(initial: Record<string, string> = {}) {
@@ -26,5 +26,21 @@ describe('createToolsRowPref', () => {
     expect(storage.data.get(TOOLS_ROW_KEY)).toBe('always')
     expect(TOOLS_ROW_KEY).toBe('wl.seektools')
     expect(createToolsRowPref(() => storage).get()).toBe('always') // a later visit reads it back
+  })
+})
+
+describe('createLongFormPref', () => {
+  it('is twenty minutes until the person chooses another length, and keeps the choice under its own key', () => {
+    const storage = fakeStorage()
+    const pref = createLongFormPref(() => storage)
+    expect(pref.get()).toBe('20')
+    pref.set('never')
+    expect(storage.data.get(LONG_FORM_KEY)).toBe('never')
+    expect(LONG_FORM_KEY).toBe('wl.longform')
+    expect(createLongFormPref(() => storage).get()).toBe('never')
+  })
+
+  it('reads a stored value that is not one of the choices as the default, so a damaged value never turns remembering off', () => {
+    for (const stored of ['', '15', 'ALL', '{}', 'null']) expect(createLongFormPref(() => fakeStorage({ [LONG_FORM_KEY]: stored })).get(), stored).toBe('20')
   })
 })

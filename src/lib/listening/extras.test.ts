@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { LONG_RECORDING, isLongRecording, showTools } from './extras'
+import { showTools } from './extras'
 
 const song = { always: false, chapters: 0, looping: false, bookmarks: 0, long: false }
 
@@ -30,20 +30,3 @@ describe('showTools', () => {
   })
 })
 
-describe('isLongRecording', () => {
-  it('is true from twenty minutes on, and not a second before', () => {
-    expect(LONG_RECORDING).toBe(20 * 60)
-    expect(isLongRecording(LONG_RECORDING)).toBe(true)
-    expect(isLongRecording(LONG_RECORDING + 3600)).toBe(true)
-    expect(isLongRecording(LONG_RECORDING - 1)).toBe(false)
-    expect(isLongRecording(215)).toBe(false) // a song
-  })
-
-  it('is false for a length that is not known or not a time', () => {
-    for (const length of [0, -5, Number.NaN, Number.NEGATIVE_INFINITY]) expect(isLongRecording(length), String(length)).toBe(false)
-  })
-
-  it('does not take an infinite length (a stream without an end) for a long recording to keep', () => {
-    expect(isLongRecording(Number.POSITIVE_INFINITY)).toBe(false)
-  })
-})
