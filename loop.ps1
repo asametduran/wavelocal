@@ -130,7 +130,19 @@ function Invoke-Run {
   } catch {
     $text = ($raw + ' ' + $err).Trim()
   }
-  if ($status -ne 'ok' -and "$text $err" -match '(?i)rate.?limit|usage limit|quota|too many requests|429|overloaded|limit reached|resets? at|hit your limit') { $rateLimited = $true }
+  $resetAt = $null
+  if ($status -ne 'ok' -and "$text $err" -match '(?i)rate.?limit|usage limit|session limit|weekly limit|quota|too many requests|429|overloaded|limit reached|hit your .{0,30}limit|resets? (at )?\d') {
+    $rateLimited = $true
+    # Claude says e.g. "You have hit your session limit - resets 1:30pm (Europe/Istanbul)": wait for that time, not a fixed guess.
+    if ("$text $err" -match '(?i)resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)') {
+      $h = [int]$Matches[1]
+      $mi = if ($Matches[2]) { [int]$Matches[2] } else { 0 }
+      $ap = $Matches[3].ToLower()
+      if ($ap -eq 'pm' -and $h -lt 12) { $h += 12 } elseif ($ap -eq 'am' -and $h -eq 12) { $h = 0 }
+      $resetAt = (Get-Date).Date.AddHours($h).AddMinutes($mi)
+      if ($resetAt -le (Get-Date)) { $resetAt = $resetAt.AddDays(1) }
+    }
+  }
 
   $after = (git rev-parse --short HEAD 2>$null)
   $newCommit = ($before -ne $after)
@@ -142,7 +154,7 @@ function Invoke-Run {
   if ($snippet) { Write-Log "  result: $snippet" }
   $errOne = ($err -replace '\s+', ' ').Trim()
   if ($errOne) { Write-Log "  stderr: $($errOne.Substring(0, [math]::Min(300, $errOne.Length)))" }
-  return @{ Status = $status; RateLimited = $rateLimited; NewCommit = $newCommit }
+  return @{ Status = $status; RateLimited = $rateLimited; NewCommit = $newCommit; ResetAt = $resetAt }
 }
 
 try {
@@ -160,8 +172,15 @@ try {
 
       if ($r.RateLimited) {
         $fails = 0; $noCommit = 0
-        Write-Log "quota exhausted - waiting $([int]($RateLimitRetrySeconds / 60)) min, then retrying until it resets"
-        Wait-Interruptible $RateLimitRetrySeconds 'rate limited, waiting for quota reset'
+        # Known reset time: sleep until then (+90s margin, clamped to 1 min .. 6 h). Unknown: poll every ~17 min.
+        $wait = $RateLimitRetrySeconds
+        $why = 'reset time unknown'
+        if ($r.ResetAt) {
+          $wait = [math]::Min(21600, [math]::Max(60, [int]($r.ResetAt - (Get-Date)).TotalSeconds + 90))
+          $why = "resets $($r.ResetAt.ToString('HH:mm'))"
+        }
+        Write-Log "quota exhausted ($why) - waiting $([int]($wait / 60)) min, then resuming immediately"
+        Wait-Interruptible $wait 'rate limited, waiting for quota reset'
       } elseif ($r.Status -ne 'ok') {
         $noCommit = 0
         $fails++
