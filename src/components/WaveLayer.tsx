@@ -2,13 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import type { RefObject } from 'react'
 import { chapterIndexAt } from '../lib/chapters/navigate'
 import type { Chapter } from '../lib/chapters/types'
-import { barsFor, markPositions, paintBars, paintMarks } from '../lib/waveform/draw'
+import { barsFor, markPositions, paintBars, paintFlags, paintMarks, paintRegion, paintStart, regionSpan, startColumn } from '../lib/waveform/draw'
 import type { Bar, Palette } from '../lib/waveform/draw'
 import { peaksService, pruneOnce } from '../lib/waveform/instance'
 import { paletteFor } from '../lib/waveform/palette'
 import { seekStyle } from '../lib/waveform/prefs'
+import { useBookmarks } from '../hooks/useBookmarks'
 import { useChapters } from '../hooks/useChapters'
 import { formatTime } from '../lib/format'
+import { loopStart } from '../lib/listening/loopcontrol'
 import type { PlayerApi } from '../types'
 
 /**
@@ -131,16 +133,27 @@ export default function WaveLayer({ p, box }: WaveLayerProps) {
     paint(played.current, bars, size.w, size.h, palette.played)
   }, [style, size, state, accent, forced])
 
-  // where the chapters begin: lines over the waveform, drawn when the chapters, the size, the length or the colours change
+  // what is marked over the waveform: a line where each chapter begins, the part that repeats (shaded; only its start while the end
+  // is still to come) and a flag at each bookmark. Drawn when any of them, the size, the length or the colours change.
   const chapterState = useChapters(id)
   const chapters = chapterState.status === 'ready' ? chapterState.chapters : null
+  const bookmarks = useBookmarks(track?.key)
+  const waiting = useSyncExternalStore(loopStart.subscribe, loopStart.get)
+  const { loop } = p
   const lines = useRef<HTMLCanvasElement>(null)
   const length = duration > 0 ? duration : trackDuration
   useEffect(() => {
     if (style !== 'waveform' || !size.w || !size.h) return
     const ctx = context(lines.current, size.w, size.h)
-    if (ctx) paintMarks(ctx, chapters ? markPositions(chapters.map((c) => c.start), length, size.w) : [], size.w, size.h, paletteFor(accent, forced).marks)
-  }, [style, size, chapters, length, accent, forced])
+    if (!ctx) return
+    const palette = paletteFor(accent, forced)
+    paintMarks(ctx, chapters ? markPositions(chapters.map((c) => c.start), length, size.w) : [], size.w, size.h, palette.marks)
+    const span = loop ? regionSpan(loop, length, size.w) : null
+    const first = waiting === null ? null : startColumn(waiting, length, size.w)
+    if (span) paintRegion(ctx, span, size.h, palette.region)
+    else if (first !== null) paintStart(ctx, first, size.h, palette.region.edge)
+    paintFlags(ctx, markPositions(bookmarks.map((b) => b.t), length, size.w), palette.flag)
+  }, [style, size, chapters, length, accent, forced, loop, waiting, bookmarks])
 
   // the time under the pointer, as a small label above the bar (the slider itself speaks the time for screen readers)
   const [hover, setHover] = useState<{ x: number; t: number } | null>(null)

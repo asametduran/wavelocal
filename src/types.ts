@@ -4,6 +4,8 @@ import type { AudioEngine } from './lib/engine'
 import type { Backup, PendingRestore, RestoreSummary } from './lib/backup'
 import type { TagEdit } from './lib/tags'
 import type { AudioFormat } from './lib/audio/probe/types'
+import type { BookmarksByKey } from './lib/listening/types'
+import type { LoopRange } from './lib/loop'
 import type { SortSpec } from './lib/sort'
 import type { TagMeta } from './lib/tagfields'
 
@@ -360,6 +362,10 @@ export interface PlayerApi {
   /** The exact playhead in seconds, read from the audio element (`time` only updates a few times a second). */
   position: () => number
   seekBy: (delta: number) => void
+  /** The part of the playing track that repeats (an A-B loop), or null. It goes when another track starts. */
+  loop: LoopRange | null
+  /** Set the loop, or end it with null. Anything but two ordered numbers is no loop. */
+  setLoop: (range: LoopRange | null) => void
   setVolume: (v: number) => void
   volumeBy: (delta: number) => void
   toggleMute: () => void
@@ -391,7 +397,8 @@ export interface PlayerApi {
   /** Forget every play count and last-played time (the "most played" lists start over). */
   resetPlays: () => void
   /** The library's metadata, playlists and play counts (no audio) as the text of a JSON backup file. */
-  exportBackup: () => Promise<string>
+  /** The backup file's text; `bookmarks` (by library key) are the ones kept in the listening store, which the player does not hold. */
+  exportBackup: (bookmarks?: BookmarksByKey) => Promise<string>
   /** What restoring `backup` would do, without doing it. */
   previewBackup: (backup: Backup) => Promise<RestoreSummary>
   /** Merge `backup` into the library. Whatever refers to files not in the library yet completes when they are added. */

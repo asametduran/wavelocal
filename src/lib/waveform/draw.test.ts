@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { barCount, barsFor, markPositions, MARK_GAP, paintBars, paintMarks } from './draw'
+import { barCount, barsFor, markPositions, MARK_GAP, paintBars, paintFlags, paintMarks, paintRegion, paintStart, regionSpan, startColumn } from './draw'
 import type { PaintTarget } from './draw'
 import type { Peaks } from './types'
 
@@ -155,5 +155,95 @@ describe('paintMarks', () => {
     const { target, log } = recorder()
     paintMarks(target, [], 100, 36, 'white')
     expect(log).toEqual(['clear 0,0 100x36'])
+  })
+})
+
+describe('regionSpan', () => {
+  it('puts the loop at the pixel columns of its two ends', () => {
+    expect(regionSpan({ a: 10, b: 20 }, 100, 200)).toEqual({ from: 20, to: 40 })
+    expect(regionSpan({ a: 0, b: 50 }, 100, 300)).toEqual({ from: 0, to: 150 })
+  })
+
+  it('keeps the loop on the bar when it reaches past the end of the track or before its start', () => {
+    expect(regionSpan({ a: 90, b: 150 }, 100, 200)).toEqual({ from: 180, to: 200 })
+    expect(regionSpan({ a: -20, b: 10 }, 100, 200)).toEqual({ from: 0, to: 20 })
+  })
+
+  it('is at least two pixels wide, so even a very short loop on a long track can be seen, and stays on the bar', () => {
+    expect(regionSpan({ a: 10, b: 10.5 }, 3600, 300)).toEqual({ from: 1, to: 3 })
+    expect(regionSpan({ a: 3599, b: 3600 }, 3600, 300)).toEqual({ from: 298, to: 300 })
+  })
+
+  it('has no region for a bar or a track without a size, or a loop that is not a loop', () => {
+    expect(regionSpan({ a: 10, b: 20 }, 0, 200)).toBeNull()
+    expect(regionSpan({ a: 10, b: 20 }, Number.NaN, 200)).toBeNull()
+    expect(regionSpan({ a: 10, b: 20 }, 100, 0)).toBeNull()
+    expect(regionSpan({ a: 20, b: 10 }, 100, 200)).toBeNull()
+    expect(regionSpan({ a: Number.NaN, b: 10 }, 100, 200)).toBeNull()
+  })
+})
+
+describe('paintRegion', () => {
+  it('fills the span and draws a two pixel edge at each end, over the whole height', () => {
+    const { target, log } = recorder()
+    paintRegion(target, { from: 20, to: 40 }, 36, { fill: 'fill', edge: 'edge' })
+    expect(log).toEqual(['fill 20,0 20x36', 'edge 20,0 2x36', 'edge 38,0 2x36'])
+  })
+})
+
+describe('paintStart', () => {
+  it('draws the start of a loop that has no end yet as a line with a small flag at the top', () => {
+    const { target, log } = recorder()
+    paintStart(target, 50, 36, 'edge')
+    expect(log).toEqual(['edge 50,0 2x36', 'edge 50,0 6x3'])
+  })
+})
+
+describe('paintFlags', () => {
+  it('draws a small downward-pointing flag at the top at each column, without clearing what is there', () => {
+    const { target, log } = recorder()
+    paintFlags(target, [10, 40], 'amber')
+    expect(log).toEqual([
+      'amber 7,0 7x1',
+      'amber 8,1 5x1',
+      'amber 9,2 3x1',
+      'amber 10,3 1x1',
+      'amber 37,0 7x1',
+      'amber 38,1 5x1',
+      'amber 39,2 3x1',
+      'amber 40,3 1x1',
+    ])
+  })
+
+  it('draws nothing for no flags', () => {
+    const { target, log } = recorder()
+    paintFlags(target, [], 'amber')
+    expect(log).toEqual([])
+  })
+})
+
+describe('startColumn', () => {
+  it('puts the start of a loop at the pixel column of its time', () => {
+    expect(startColumn(50, 100, 200)).toBe(100)
+    expect(startColumn(25, 100, 300)).toBe(75)
+  })
+
+  it('shows a start at the very beginning of the track (a chapter line never is: this one is set by the person)', () => {
+    expect(startColumn(0, 100, 200)).toBe(0)
+  })
+
+  it('keeps room for the two pixels of the line at the far end, and stays on the bar for a time before or after the track', () => {
+    expect(startColumn(100, 100, 200)).toBe(198)
+    expect(startColumn(250, 100, 200)).toBe(198)
+    expect(startColumn(-5, 100, 200)).toBe(0)
+  })
+
+  it('has nothing to draw for a bar or a track without a size, or a time that is not a time', () => {
+    expect(startColumn(10, 0, 200)).toBeNull()
+    expect(startColumn(10, Number.NaN, 200)).toBeNull()
+    expect(startColumn(10, 100, 0)).toBeNull()
+    expect(startColumn(10, 100, 1)).toBeNull() // no room for two pixels
+    expect(startColumn(Number.NaN, 100, 200)).toBeNull()
+    expect(startColumn(Number.POSITIVE_INFINITY, 100, 200)).toBeNull()
   })
 })

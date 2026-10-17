@@ -19,12 +19,18 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g
 // half of a surrogate pair: nothing can draw it
 const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g
 
-/** A title fit to show: text only, one line, no look-alike tricks, at most `MAX_TITLE` characters. Anything that is not text is empty. */
-export function cleanTitle(value: unknown): string {
+/**
+ * `value` as one line fit to show: text only, no look-alike tricks, at most `max` characters (never half of a character that takes
+ * two code units). Anything that is not text is empty. Chapter titles and bookmark names both go through this.
+ */
+export function cleanLine(value: unknown, max: number): string {
   if (typeof value !== 'string') return ''
   const text = value.replace(LONE_SURROGATE, '�').replace(INVISIBLE, '').replace(CONTROL, ' ').replace(/\s+/g, ' ').trim()
-  return [...text].slice(0, MAX_TITLE).join('').trim()
+  return [...text].slice(0, max).join('').trim()
 }
+
+/** A chapter title fit to show: one clean line of at most `MAX_TITLE` characters. */
+export const cleanTitle = (value: unknown): string => cleanLine(value, MAX_TITLE)
 
 /**
  * Order the chapters by start, drop those that cannot be reached (before the file, at or after its end, not a time), keep one

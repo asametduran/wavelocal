@@ -1,3 +1,4 @@
+import type { LoopRange } from '../loop'
 import type { Peaks } from './types'
 
 /**
@@ -96,6 +97,57 @@ export function paintBars(ctx: PaintTarget, bars: readonly Bar[], width: number,
     ctx.fillStyle = palette.body
     ctx.fillRect(bar.x, (height - inner) / 2, barWidth, inner)
   }
+}
+
+export interface RegionPalette {
+  /** The shading over the part that repeats. */
+  fill: string
+  /** The two edges of it. */
+  edge: string
+}
+
+/**
+ * The pixel columns a loop covers on a bar `width` pixels wide that shows `duration` seconds: kept on the bar, and at least two
+ * pixels wide so a short loop on a long track can still be seen. Null when there is nothing to draw.
+ */
+export function regionSpan(loop: LoopRange, duration: number, width: number): { from: number; to: number } | null {
+  if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(width) || width <= 0) return null
+  if (!(loop.b > loop.a) || !Number.isFinite(loop.a) || !Number.isFinite(loop.b)) return null
+  const at = (time: number): number => Math.min(width, Math.max(0, Math.round((time / duration) * width)))
+  const from = Math.min(at(loop.a), width - 2)
+  return { from, to: Math.min(width, Math.max(at(loop.b), from + 2)) }
+}
+
+/**
+ * The pixel column for the start of a loop whose end is still to come: on the bar, with room for its two pixels (so a start at
+ * the very beginning of the track is drawn, where a chapter line never is). Null when there is nothing to draw.
+ */
+export function startColumn(time: number, duration: number, width: number): number | null {
+  if (!Number.isFinite(time) || !Number.isFinite(duration) || duration <= 0 || !Number.isFinite(width) || width < 2) return null
+  return Math.min(width - 2, Math.max(0, Math.round((time / duration) * width)))
+}
+
+/** Shade the part of the bar that repeats, and draw its two edges (over what is already on the canvas). */
+export function paintRegion(ctx: PaintTarget, span: { from: number; to: number }, height: number, palette: RegionPalette): void {
+  ctx.fillStyle = palette.fill
+  ctx.fillRect(span.from, 0, span.to - span.from, height)
+  ctx.fillStyle = palette.edge
+  ctx.fillRect(span.from, 0, 2, height)
+  ctx.fillRect(span.to - 2, 0, 2, height)
+}
+
+/** The start of a loop that has no end yet: a line, with a small flag at the top. */
+export function paintStart(ctx: PaintTarget, column: number, height: number, color: string): void {
+  ctx.fillStyle = color
+  ctx.fillRect(column, 0, 2, height)
+  ctx.fillRect(column, 0, 6, 3)
+}
+
+/** A small flag pointing down at the top of the bar at each of `columns`: where a bookmark is. Drawn over what is there. */
+export function paintFlags(ctx: PaintTarget, columns: readonly number[], color: string): void {
+  if (columns.length === 0) return
+  ctx.fillStyle = color
+  for (const x of columns) for (let row = 0; row < 4; row++) ctx.fillRect(x - 3 + row, row, 7 - 2 * row, 1)
 }
 
 /** Paint a thin line over the whole height at each of `columns` (clearing the canvas first): the marks that tell where a chapter begins. */

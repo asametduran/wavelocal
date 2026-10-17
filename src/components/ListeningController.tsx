@@ -6,6 +6,10 @@ import { chaptersService, pruneOnce } from '../lib/chapters/instance'
 import { chapterIndexAt, nextChapterStart, previousChapterStart } from '../lib/chapters/navigate'
 import { chaptersPanel } from '../lib/chapters/panel'
 import { chapterAnnouncement } from '../lib/chapters/speech'
+import { markHere } from '../lib/listening/bookmarkcontrol'
+import { listeningService } from '../lib/listening/instance'
+import { changeLoop, loopStart } from '../lib/listening/loopcontrol'
+import { pressLoopKey } from '../lib/listening/loopdraft'
 import { lazyPanel, preloadWhenIdle } from './lazy'
 import type { PlayerApi } from '../types'
 
@@ -42,6 +46,15 @@ export default function ListeningController({ p }: { p: PlayerApi }) {
   useEffect(() => preloadWhenIdle([loadList]), [])
   // with nothing left to list, the list closes (and does not pop up again by itself with the next track)
   useEffect(() => close, [])
+  // a loop belongs to one track (the player drops it); so does a start that was still waiting for its end
+  useEffect(() => {
+    loopStart.set(null)
+  }, [id])
+  // the bookmarks of the playing track are looked for as soon as it is current: one small record, kept in the database
+  const trackKey = current?.key
+  useEffect(() => {
+    listeningService.want(trackKey ? { key: trackKey } : null)
+  }, [trackKey])
 
   // C opens (or closes) the list, "," and "." go to the previous and next chapter; typing in a field is left alone
   useEffect(() => {
@@ -53,6 +66,16 @@ export default function ListeningController({ p }: { p: PlayerApi }) {
       if (key === 'c') {
         e.preventDefault()
         chaptersPanel.toggle()
+        return
+      }
+      if (key === 'l') {
+        e.preventDefault()
+        changeLoop(latest.current, pressLoopKey)
+        return
+      }
+      if (key === 'b') {
+        e.preventDefault()
+        markHere(listeningService, latest.current)
         return
       }
       if (key !== ',' && key !== '.') return

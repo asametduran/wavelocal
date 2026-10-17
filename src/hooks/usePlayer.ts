@@ -18,6 +18,9 @@ import { continueAfter, dequeueAt, keepKnown, moveQueued, queueLast, queueNext, 
 import type { Resume, Taken } from '../lib/upnext'
 import type { Backup, PendingRestore, ResolveResult, RestoreSummary } from '../lib/backup'
 import { PlayTally } from '../lib/plays'
+import { asLoop, loopStep } from '../lib/loop'
+import type { LoopRange } from '../lib/loop'
+import type { BookmarksByKey } from '../lib/listening/types'
 import { isSmartId, smartList, smartTracks } from '../lib/smart'
 import { applyTagEdit } from '../lib/tags'
 import type { TagEdit } from '../lib/tags'
@@ -114,6 +117,8 @@ interface Snapshot {
   transition: TransitionMode
   normalize: boolean
   hydrated: boolean
+  /** The part of the track that repeats, or null. Set only through `setLoop`, which keeps this and the state of the hook the same. */
+  loop: LoopRange | null
 }
 
 interface CrossfadeState {
@@ -148,6 +153,7 @@ export function usePlayer(): PlayerApi {
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
   const [time, setTime] = useState(0)
+  const [loop, setLoopState] = useState<LoopRange | null>(null)
   const [duration, setDuration] = useState(0)
   const [volume, setVolumeState] = useState(saved.volume ?? 0.8)
   const [muted, setMuted] = useState(saved.muted ?? false)
@@ -197,6 +203,8 @@ export function usePlayer(): PlayerApi {
   const failStreak = useRef(0)
   /** Decides when listening counts as a play (half the track or 30 s of real listening). */
   const tally = useRef(new PlayTally())
+  /** The jump of an A-B loop, scheduled for the moment the playhead reaches its end. */
+  const loopTimer = useRef<Timer | null>(null)
   /** Set after `next` exists; used where `load` has to skip an unplayable track. */
   const skipUnplayable = useRef<() => void>(() => {})
   /** Imports run one after another (so none misses what the one before added); each has its own abort controller. */
@@ -220,6 +228,7 @@ export function usePlayer(): PlayerApi {
     transition,
     normalize,
     hydrated: false,
+    loop: null,
   })
 
   // A smart list is ordered once, when it is opened (or when tracks are added/removed), and not on every play count:
@@ -285,6 +294,35 @@ export function usePlayer(): PlayerApi {
     [engine],
   )
 
+  /**
+   * The A-B loop: the part of the track that repeats, or null. It belongs to the track that is playing and goes when another one
+   * starts. While it is set the track is held (nothing is preloaded, no transition starts) and its end jumps back to its start.
+   */
+  const setLoop = useCallback((range: LoopRange | null) => {
+    if (loopTimer.current) clearTimeout(loopTimer.current)
+    loopTimer.current = null
+    const next = asLoop(range) // anything but two ordered times is no loop
+    state.current.loop = next
+    setLoopState(next)
+  }, [])
+
+  /** Look at the loop from where the playhead is: jump back now, or schedule the jump for its end. True while a loop holds the track. */
+  const stepLoop = useCallback((): boolean => {
+    if (loopTimer.current) clearTimeout(loopTimer.current)
+    loopTimer.current = null
+    const held = state.current.loop
+    if (!held) return false
+    const el = getEl()
+    if (el.paused) return true
+    const step = loopStep(held, el.currentTime, el.playbackRate)
+    if (step.kind === 'jump') {
+      el.currentTime = held.a
+      tally.current.jumped() // going round again is not listening to more of the track
+      setTime(held.a)
+    } else if (step.kind === 'wait') loopTimer.current = setTimeout(stepLoop, step.seconds * 1000)
+    return true
+  }, [getEl])
+
   const cancelTransition = useCallback(() => {
     const x = xfade.current
     if (x.timer) clearTimeout(x.timer)
@@ -330,6 +368,7 @@ export function usePlayer(): PlayerApi {
       awaitingSrc.current = false
       playIntent.current = autoplay
       pendingSeek.current = at // a position that was waiting for another track is not this one's
+      setLoop(null)
       state.current.currentId = track.id
       setCurrentId(track.id)
       setTime(0)
@@ -367,7 +406,7 @@ export function usePlayer(): PlayerApi {
           if (playIntent.current) skipUnplayable.current()
         })
     },
-    [applyNorm, cancelTransition, getEl, notify, resolver, startPlay],
+    [applyNorm, cancelTransition, getEl, notify, resolver, setLoop, startPlay],
   )
 
   /**
@@ -423,7 +462,7 @@ export function usePlayer(): PlayerApi {
   const beginTransition = useCallback(
     (mode: 'crossfade' | 'gapless') => {
       const x = xfade.current
-      if (x.active) return
+      if (x.active || state.current.loop) return // a loop set after the handover was already timed still holds the track
       const s = state.current
       const pend = x.pending
       // the pick made while looking ahead still stands when it is the head of Up Next, or (with nothing queued) in the list
@@ -627,9 +666,9 @@ export function usePlayer(): PlayerApi {
     if (progressed) commitRestore(r)
   }, [commitRestore])
 
-  const exportBackup = useCallback(async (): Promise<string> => {
+  const exportBackup = useCallback(async (bookmarks?: BookmarksByKey): Promise<string> => {
     const { buildBackup, serializeBackup } = await loadBackup()
-    return serializeBackup(buildBackup(state.current.tracks, state.current.playlists, trackEqRef.current, new Date()))
+    return serializeBackup(buildBackup(state.current.tracks, state.current.playlists, trackEqRef.current, new Date(), bookmarks))
   }, [])
 
   const planBackup = useCallback(async (backup: Backup) => {
@@ -892,7 +931,8 @@ export function usePlayer(): PlayerApi {
     setTrackEq({})
     db.clearTracks().catch(() => {})
     db.setMeta('resume', null).catch(() => {})
-  }, [cancelTransition, commitUpNext, engine, resolver])
+    setLoop(null)
+  }, [cancelTransition, commitUpNext, engine, resolver, setLoop])
 
   const reorder = useCallback((from: number, to: number) => {
     // positions are in the list as shown: in any sort but the stored order they are not positions in what is stored
@@ -1281,6 +1321,7 @@ export function usePlayer(): PlayerApi {
       setTime(el.currentTime)
       const s = state.current
       if (s.currentId && tally.current.observe(s.currentId, el.currentTime, el.duration, !el.paused)) recordPlay(s.currentId)
+      if (stepLoop()) return // a loop holds the track: nothing is preloaded and no transition starts while it goes round
       const mode = s.transition
       if (mode === 'off' || s.repeat === 'one' || !Number.isFinite(el.duration)) return
       const x = xfade.current
@@ -1359,6 +1400,15 @@ export function usePlayer(): PlayerApi {
     }
     const onEnd = (e: Event) => {
       if (!isActive(e)) return
+      const held = state.current.loop
+      if (held) {
+        // only a playhead that was moved past the end of the loop, to the end of the file, gets here: the loop goes round again
+        const el = getEl()
+        el.currentTime = held.a
+        tally.current.jumped()
+        startPlay(el)
+        return
+      }
       const endedId = state.current.currentId
       if (endedId && tally.current.finish(getEl().duration)) recordPlay(endedId)
       tally.current.begin(null) // whatever plays next (even the same track again) is a new listen
@@ -1421,7 +1471,7 @@ export function usePlayer(): PlayerApi {
         el.removeEventListener('error', onErr)
       })
     }
-  }, [engine, getEl, next, pickNext, beginTransition, saveResume, startPlay, applyNorm, resolver, recordPlay])
+  }, [engine, getEl, next, pickNext, beginTransition, saveResume, startPlay, applyNorm, resolver, recordPlay, stepLoop])
 
   // toggling normalization re-applies (or clears) the gain on the active deck
   useEffect(() => {
@@ -1543,7 +1593,7 @@ export function usePlayer(): PlayerApi {
     repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, normalize, setNormalize, eq, eqOn, setEqOn, setEqBand, applyPreset, eqBands, updateEqBand, addEqBand, removeEqBand, resetEq, eqRemembered, setEqRemembered, eqPresets, saveEqPreset, loadEqPreset, deleteEqPreset, spatial, setSpatial, reverb, setReverb, dynamics, setDynamics, stereo, setStereo, tone, setTone, sleepLeft, setSleep,
     upNext: upNextTracks, playNext, addToQueue, removeFromUpNext, moveInUpNext, clearUpNext, playUpNext,
     loading, importProgress, cancelImport, upgradeProgress, hydrated, decoding,
-    play, playFrom, toggle, next: () => next(false), prev, seek, position: () => getEl().currentTime, seekBy, setVolume, volumeBy, toggleMute,
+    play, playFrom, toggle, next: () => next(false), prev, seek, position: () => getEl().currentTime, seekBy, loop, setLoop, setVolume, volumeBy, toggleMute,
     cycleRepeat, toggleShuffle, addFiles, attachLrc, editTags, remove, removeFromLibrary, clear, reorder,
     createPlaylist, addToPlaylist, addTracksToPlaylist, renamePlaylist, duplicatePlaylist, deletePlaylist, resetPlays,
     exportBackup, previewBackup, applyBackup, pendingRestoreCount: pendingRestore?.tracks.length ?? 0, discardPendingRestore,

@@ -37,11 +37,21 @@ describe('paletteFor', () => {
     expect(paletteFor('#2dd4bf', false).marks).toBe(marks)
   })
 
+  it('shades a loop in the accent colour, with solid edges, and flags bookmarks in a colour that is not the accent and not white', () => {
+    const { region, flag } = paletteFor('#a78bfa', false)
+    expect(region).toEqual({ fill: 'rgba(167, 139, 250, 0.28)', edge: 'rgb(167, 139, 250)' })
+    expect(flag).toBe('rgb(251, 191, 36)')
+    expect(paletteFor('#2dd4bf', false).flag).toBe(flag) // the same amber for any accent
+    expect(paletteFor('#2dd4bf', false).region.edge).toBe('rgb(45, 212, 191)')
+  })
+
   it('uses the system colours in forced-colours mode, where a canvas is not recoloured for the person', () => {
     expect(paletteFor('#a78bfa', true)).toEqual({
       base: { peak: 'GrayText', body: 'CanvasText' },
       played: { peak: 'Highlight', body: 'Highlight' },
       marks: 'CanvasText',
+      region: { fill: 'transparent', edge: 'Highlight' },
+      flag: 'Highlight',
     })
   })
 })

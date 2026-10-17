@@ -77,7 +77,7 @@ test.describe('chapters', () => {
   const openList = () => row().getByTestId('chapter-open')
   const previous = () => row().getByRole('button', { name: 'Previous chapter (,)' })
   const next = () => row().getByRole('button', { name: 'Next chapter (.)' })
-  const list = (page: Page) => page.getByRole('dialog', { name: 'Chapters', exact: true })
+  const list = (page: Page) => page.getByRole('dialog', { name: 'Chapters and bookmarks', exact: true })
   const kept = async (id: string): Promise<Kept | undefined> => (await app.storedMeta(`chapters:${id}`)) as Kept | undefined
 
   test.beforeEach(({ page }) => {
@@ -427,7 +427,7 @@ test.describe('chapters on a phone', () => {
     expect((rowBox?.x ?? 0) + (rowBox?.width ?? 0)).toBeLessThanOrEqual(390)
 
     await group.getByTestId('chapter-open').click()
-    const dialog = page.getByRole('dialog', { name: 'Chapters', exact: true })
+    const dialog = page.getByRole('dialog', { name: 'Chapters and bookmarks', exact: true })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('listitem')).toHaveCount(4)
     await settled(page)

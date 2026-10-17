@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest'
 import type { EqBand, Playlist, Track } from '../types'
 import { graphicBands } from './eq'
 import { EMPTY_META } from './trackmeta'
+import { MAX_BOOKMARKS } from './listening/bookmarks'
+import type { Bookmark } from './listening/types'
 import {
   BACKUP_FORMAT,
   BACKUP_VERSION,
   MAX_PLAYLISTS,
   backupFileName,
   buildBackup,
+  countBookmarks,
   diffTrack,
   normalizePending,
   parseBackup,
@@ -385,5 +388,111 @@ describe('normalizePending', () => {
     expect(normalizePending({})).toBeNull()
     expect(normalizePending({ tracks: [], links: [] })).toBeNull()
     expect(normalizePending({ tracks: [{ nope: 1 }], links: [{ playlistId: 1 }] })).toBeNull()
+  })
+})
+
+describe('bookmarks in a backup', () => {
+  const marks = (...times: number[]): Bookmark[] => times.map((t) => ({ id: `id${t}`, t, label: `Mark ${t}`, at: 99 }))
+  const file = (tracks: unknown[]): string => JSON.stringify({ format: BACKUP_FORMAT, version: 1, tracks, playlists: [] })
+  const bookmarksOf = (raw: string, at = 0) => {
+    const parsed = parseBackup(raw)
+    return parsed.ok ? parsed.backup.tracks[at]?.bookmarks : undefined
+  }
+
+  it('are carried for each track by its library key: a place and a name in time order, and nothing else', () => {
+    const a = track('a')
+    const backup = buildBackup([a, track('b')], [], {}, NOW, { [a.key]: marks(5, 95), 'not-in-the-library|1|1': marks(7) })
+    expect(backup.tracks[0]?.bookmarks).toEqual([
+      { t: 5, label: 'Mark 5' },
+      { t: 95, label: 'Mark 95' },
+    ])
+    expect(backup.tracks[1]).not.toHaveProperty('bookmarks') // no empty placeholder for a track without
+    const json = serializeBackup(backup)
+    expect(json).not.toContain('not-in-the-library') // a track the library does not hold is not part of the backup
+    expect(json).not.toContain('id5') // ids and dates belong to this device
+  })
+
+  it('are left out for a track whose list is empty', () => {
+    const a = track('a')
+    expect(buildBackup([a], [], {}, NOW, { [a.key]: [] }).tracks[0]).not.toHaveProperty('bookmarks')
+  })
+
+  it('survive a round trip through the file', () => {
+    const original = buildBackup([track('a')], [], {}, NOW, { 'a.mp3|10|1': marks(5, 95) })
+    expect(original.tracks[0]?.bookmarks).toHaveLength(2) // there is something to carry
+    expect(parseBackup(serializeBackup(original))).toEqual({ ok: true, backup: original, skipped: 0 })
+  })
+
+  it('are optional: a file made before they existed reads as it did', () => {
+    expect(parseBackup(file([{ key: 'a|1|1', title: 'A' }])).ok).toBe(true)
+    expect(bookmarksOf(file([{ key: 'a|1|1', title: 'A' }]))).toBeUndefined()
+  })
+
+  it('are read as untrusted input: each entry is cleaned and bounded, and the track is never lost to a damaged list', () => {
+    const raw = file([
+      {
+        key: 'a|1|1',
+        duration: 100,
+        bookmarks: [
+          null,
+          7,
+          'x',
+          { t: -1, label: 'before the start' },
+          { t: 'soon', label: 'not a time' },
+          { t: 500, label: 'after the end' }, // the track is 100 s long
+          { t: 10, label: 'Ke\u0000pt', id: 'ignored', at: 5, extra: true },
+          { t: 10.2, label: 'same place as the one before' },
+          { t: 20 },
+          { t: 30, label: 'y'.repeat(500) },
+        ],
+      },
+      { key: 'b|1|1', bookmarks: 'junk' },
+      { key: 'c|1|1', bookmarks: { t: 5 } },
+    ])
+    const parsed = parseBackup(raw)
+    expect(parsed.ok && parsed.skipped).toBe(0)
+    expect(parsed.ok && parsed.backup.tracks.map((t) => t.key)).toEqual(['a|1|1', 'b|1|1', 'c|1|1'])
+    expect(bookmarksOf(raw, 0)).toEqual([
+      { t: 10, label: 'Ke pt' },
+      { t: 20, label: 'Bookmark 1' },
+      { t: 30, label: 'y'.repeat(80) },
+    ])
+    expect(bookmarksOf(raw, 1)).toBeUndefined()
+    expect(bookmarksOf(raw, 2)).toBeUndefined()
+  })
+
+  it('are kept when the length of the track is not known: they are the person’s, and 0 only means unknown', () => {
+    expect(bookmarksOf(file([{ key: 'a|1|1', bookmarks: [{ t: 5000, label: 'late' }] }]))).toEqual([{ t: 5000, label: 'late' }])
+  })
+
+  it('are capped at what a track can hold', () => {
+    const many = Array.from({ length: MAX_BOOKMARKS + 100 }, (_, i) => ({ t: i * 2, label: `m${i}` }))
+    expect(bookmarksOf(file([{ key: 'a|1|1', bookmarks: many }]))).toHaveLength(MAX_BOOKMARKS)
+  })
+
+  it('do not wait for a file: a track that is not in the library waits without its bookmarks, which are applied when the backup is restored', () => {
+    const backup: Backup = { format: BACKUP_FORMAT, version: 1, exportedAt: '', tracks: [bt('gone', { bookmarks: [{ t: 5, label: 'x' }] })], playlists: [] }
+    const plan = planRestore(backup, [], [], {}, null, newId)
+    expect(plan.pending?.tracks).toHaveLength(1)
+    expect(plan.pending?.tracks[0]).not.toHaveProperty('bookmarks')
+    expect(backup.tracks[0]?.bookmarks).toEqual([{ t: 5, label: 'x' }]) // the backup itself is as it was
+  })
+
+  it('make no change to a track by themselves: they are not tags', () => {
+    expect(diffTrack(track('a'), bt('a', { bookmarks: [{ t: 5, label: 'x' }] }))).toEqual({})
+  })
+})
+
+describe('countBookmarks', () => {
+  it('counts the bookmarks of a backup and the tracks that have them', () => {
+    const backup: Backup = {
+      format: BACKUP_FORMAT,
+      version: 1,
+      exportedAt: '',
+      tracks: [bt('a', { bookmarks: [{ t: 1, label: 'x' }, { t: 9, label: 'y' }] }), bt('b'), bt('c', { bookmarks: [{ t: 3, label: 'z' }] })],
+      playlists: [],
+    }
+    expect(countBookmarks(backup)).toEqual({ bookmarks: 3, tracks: 2 })
+    expect(countBookmarks({ ...backup, tracks: [] })).toEqual({ bookmarks: 0, tracks: 0 })
   })
 })

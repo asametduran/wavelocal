@@ -12,6 +12,9 @@
  */
 import type { EqBand, Lyrics, Playlist, Track, TrackRecord } from '../types'
 import { normalizeTrackEq } from './eq'
+import { normalizeBookmarks } from './listening/bookmarks'
+import type { IncomingBookmark } from './listening/bookmarks'
+import type { Bookmark } from './listening/types'
 
 export const BACKUP_FORMAT = 'wavelocal-backup'
 export const BACKUP_VERSION = 1
@@ -48,6 +51,8 @@ export interface BackupTrack {
   year?: number
   genre?: string
   compilation?: boolean
+  /** The places the person marked in this track, each with the name they gave it (the ids and dates stay on the device that made them). */
+  bookmarks?: IncomingBookmark[]
 }
 
 export interface BackupPlaylist {
@@ -82,8 +87,17 @@ export interface PendingRestore {
 
 // ---- export ---------------------------------------------------------------------------------------------------
 
-/** Snapshot the library's metadata. Audio and cover art are deliberately left out. */
-export function buildBackup(tracks: readonly Track[], playlists: readonly Playlist[], trackEq: Readonly<Record<string, EqBand[]>>, now: Date): Backup {
+/**
+ * Snapshot the library's metadata. Audio and cover art are deliberately left out. `bookmarks` holds each track's bookmarks by
+ * library key (kept in a store of their own); those of a track the library does not hold are not part of the backup.
+ */
+export function buildBackup(
+  tracks: readonly Track[],
+  playlists: readonly Playlist[],
+  trackEq: Readonly<Record<string, EqBand[]>>,
+  now: Date,
+  bookmarks: Readonly<Record<string, readonly Bookmark[]>> = {},
+): Backup {
   const keyById = new Map(tracks.map((t) => [t.id, t.key]))
   return {
     format: BACKUP_FORMAT,
@@ -114,6 +128,8 @@ export function buildBackup(tracks: readonly Track[], playlists: readonly Playli
       if (t.year) entry.year = t.year
       if (t.genre) entry.genre = t.genre
       if (t.compilation) entry.compilation = true
+      const marked = bookmarks[t.key]
+      if (marked?.length) entry.bookmarks = marked.map((mark) => ({ t: mark.t, label: mark.label }))
       return entry
     }),
     playlists: playlists.map((p) => ({ id: p.id, name: p.name, keys: p.trackIds.flatMap((id) => keyById.get(id) ?? []) })),
@@ -124,6 +140,18 @@ export const serializeBackup = (backup: Backup): string => JSON.stringify(backup
 
 /** `wavelocal-backup-2026-10-16.json` */
 export const backupFileName = (now: Date): string => `wavelocal-backup-${now.toISOString().slice(0, 10)}.json`
+
+/** How many bookmarks a backup holds and in how many tracks (for the restore preview). */
+export function countBookmarks(backup: Backup): { bookmarks: number; tracks: number } {
+  let bookmarks = 0
+  let tracks = 0
+  for (const track of backup.tracks) {
+    if (!track.bookmarks?.length) continue
+    bookmarks += track.bookmarks.length
+    tracks++
+  }
+  return { bookmarks, tracks }
+}
 
 // ---- import: parsing ------------------------------------------------------------------------------------------
 
@@ -158,6 +186,12 @@ function parseLyrics(v: unknown): Lyrics | null {
   return { synced: v.synced === true && lines.every((l) => l.t !== null), lines }
 }
 
+/** The bookmarks of a track as the file gives them: untrusted, so each is cleaned and bounded by the same rules as one made here. */
+function parseBookmarks(raw: unknown, duration: number): IncomingBookmark[] {
+  let n = 0
+  return normalizeBookmarks(raw, { duration, newId: () => String(++n) }).map((mark) => ({ t: mark.t, label: mark.label }))
+}
+
 function parseTrack(v: unknown): BackupTrack | null {
   if (!isObj(v) || typeof v.key !== 'string' || !v.key || v.key.length > 600) return null
   const gain = typeof v.gainDb === 'number' && Number.isFinite(v.gainDb) ? Math.round(Math.max(-12, Math.min(12, v.gainDb)) * 10) / 10 : null
@@ -189,6 +223,8 @@ function parseTrack(v: unknown): BackupTrack | null {
   const year = exact(v.year, 2999)
   if (year >= 1000) track.year = year
   if (v.compilation === true) track.compilation = true
+  const bookmarks = parseBookmarks(v.bookmarks, track.duration)
+  if (bookmarks.length) track.bookmarks = bookmarks
   return track
 }
 
@@ -360,6 +396,18 @@ export interface RestorePlan extends ResolveResult {
 const sameName = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase()
 
 /**
+ * A track as it waits for its file. Bookmarks are not kept waiting: they belong to the file's library key, so they are applied
+ * once, when the backup is restored, whether or not the file is in the library yet. Left in the waiting copy they would come
+ * back when the file arrives, even if the person had deleted them by then.
+ */
+function waiting(track: BackupTrack): BackupTrack {
+  if (!track.bookmarks) return track
+  const copy = { ...track }
+  delete copy.bookmarks
+  return copy
+}
+
+/**
  * Merge a parsed backup into the current library. Playlists are matched by id, then by name (so restoring into the
  * device that made the backup merges, and restoring somewhere else adds the playlists next to the existing ones).
  * Nothing in the library is removed.
@@ -393,7 +441,7 @@ export function planRestore(
 
   // what an earlier restore left waiting stays waiting; a newer backup's entry for the same track replaces the old one
   const newKeys = new Set(backup.tracks.map((t) => t.key))
-  const tracks = [...(earlier?.tracks ?? []).filter((t) => !newKeys.has(t.key)), ...backup.tracks]
+  const tracks = [...(earlier?.tracks ?? []).filter((t) => !newKeys.has(t.key)), ...backup.tracks.map(waiting)]
   const seen = new Set<string>()
   const allLinks = [...(earlier?.links ?? []), ...links].filter((l) => {
     const id = `${l.playlistId}\u0000${l.key}`

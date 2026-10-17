@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react'
 import { DatabaseBackup, Download, Upload } from 'lucide-react'
-import { MAX_BACKUP_BYTES, backupFileName, parseBackup } from '../lib/backup'
+import { MAX_BACKUP_BYTES, backupFileName, countBookmarks, parseBackup } from '../lib/backup'
 import type { Backup, RestoreSummary } from '../lib/backup'
+import { listeningService } from '../lib/listening/instance'
 import type { PlayerApi } from '../types'
 
 const button = 'inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-zinc-200 transition hover:bg-white/15 disabled:opacity-40'
@@ -9,13 +10,27 @@ const primary = 'inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`
 
+/** What a restore does with the bookmarks of the file: how many it holds and in how many tracks, how many were new, and how many tracks could not be read. */
+interface BookmarkResult {
+  found: number
+  tracks: number
+  added: number
+  unreadable: number
+}
+
+/** The bookmarks a backup file holds, as the preview shows them (none are added yet). */
+const found = (backup: Backup): BookmarkResult => {
+  const counts = countBookmarks(backup)
+  return { found: counts.bookmarks, tracks: counts.tracks, added: 0, unreadable: 0 }
+}
+
 type Step =
   | { kind: 'idle' }
   | { kind: 'preview'; backup: Backup; summary: RestoreSummary; fileName: string; skipped: number }
-  | { kind: 'done'; summary: RestoreSummary }
+  | { kind: 'done'; summary: RestoreSummary; bookmarks: BookmarkResult }
 
 /** What a restore will do (or did), in plain sentences. */
-function Summary({ s, done }: { s: RestoreSummary; done: boolean }) {
+function Summary({ s, done, bookmarks }: { s: RestoreSummary; done: boolean; bookmarks: BookmarkResult }) {
   const lines: string[] = []
   lines.push(`${plural(s.tracksInBackup, 'track')} in the backup: ${s.matched.toLocaleString()} already in your library, ${s.waiting.toLocaleString()} not yet.`)
   if (s.updated) lines.push(`${done ? 'Updated' : 'Will update'} tags, lyrics or play counts of ${plural(s.updated, 'track')}.`)
@@ -23,6 +38,14 @@ function Summary({ s, done }: { s: RestoreSummary; done: boolean }) {
   if (s.playlistsInBackup) {
     const parts = [s.playlistsCreated && `${done ? 'added' : 'add'} ${plural(s.playlistsCreated, 'playlist')}`, s.playlistsMerged && `${done ? 'merged' : 'merge'} ${plural(s.playlistsMerged, 'playlist')}`].filter(Boolean)
     if (parts.length) lines.push(`Playlists: ${parts.join(' and ')}${s.membersAdded ? `, putting ${plural(s.membersAdded, 'track')} into them` : ''}.`)
+  }
+  if (bookmarks.found) {
+    lines.push(
+      done
+        ? `Bookmarks: ${plural(bookmarks.added, 'new bookmark')} added${bookmarks.added < bookmarks.found ? ' (the others were there already)' : ''}.`
+        : `Bookmarks: ${plural(bookmarks.found, 'bookmark')} in ${plural(bookmarks.tracks, 'track')}; the ones you do not have yet will be added.`,
+    )
+    if (done && bookmarks.unreadable) lines.push(`${plural(bookmarks.unreadable, 'track')} could not be read, so their bookmarks were not restored. Restore the backup again to try once more.`)
   }
   if (s.waiting) lines.push(`The ${plural(s.waiting, 'track')} you do not have yet are remembered: add those files and their playlists, play counts and tags fill in by themselves.`)
   return (
@@ -48,7 +71,7 @@ export default function BackupSection({ p }: { p: PlayerApi }) {
     setError(null)
     let text: string
     try {
-      text = await p.exportBackup()
+      text = await p.exportBackup(await listeningService.collect(p.tracks.map((t) => t.key)))
     } catch {
       return setError('Could not make the backup. Check your connection and try again.')
     }
@@ -86,7 +109,7 @@ export default function BackupSection({ p }: { p: PlayerApi }) {
         <DatabaseBackup size={15} /> Backup &amp; restore
       </h3>
       <p className="mb-3 text-xs text-zinc-400">
-        Save your playlists, tags, lyrics and play counts to a small file. It holds no audio or artwork, only text about your library (including what you listened to), and goes wherever you save it.
+        Save your playlists, tags, lyrics, bookmarks and play counts to a small file. It holds no audio or artwork, only text about your library (including what you listened to), and goes wherever you save it.
       </p>
 
       <div className="flex flex-wrap gap-2">
@@ -111,8 +134,8 @@ export default function BackupSection({ p }: { p: PlayerApi }) {
             <strong>{step.fileName}</strong>
             {step.backup.exportedAt ? <span className="text-zinc-400"> · saved {new Date(step.backup.exportedAt).toLocaleString()}</span> : null}
           </p>
-          <Summary s={step.summary} done={false} />
-          <p className="text-xs text-zinc-400">Nothing is removed. Tags and lyrics in the backup replace the ones in your library; play counts only ever go up.</p>
+          <Summary s={step.summary} done={false} bookmarks={found(step.backup)} />
+          <p className="text-xs text-zinc-400">Nothing is removed. Tags and lyrics in the backup replace the ones in your library; play counts only ever go up; bookmarks are added to yours.</p>
           {step.skipped > 0 && <p className="text-xs text-zinc-400">{plural(step.skipped, 'damaged entry', 'damaged entries')} in the file will be skipped.</p>}
           <div className="flex gap-2">
             <button
@@ -120,7 +143,9 @@ export default function BackupSection({ p }: { p: PlayerApi }) {
               className={primary}
               onClick={async () => {
                 const summary = await p.applyBackup(step.backup)
-                setStep({ kind: 'done', summary })
+                const entries = step.backup.tracks.flatMap((t) => (t.bookmarks?.length ? [{ key: t.key, bookmarks: t.bookmarks }] : []))
+                const merged = await listeningService.merge(entries)
+                setStep({ kind: 'done', summary, bookmarks: { ...found(step.backup), ...merged } })
               }}
             >
               Restore
@@ -135,7 +160,7 @@ export default function BackupSection({ p }: { p: PlayerApi }) {
       {step.kind === 'done' && (
         <div role="status" className="mt-3 space-y-2 rounded-2xl bg-white/5 p-3">
           <p className="text-sm font-semibold">Backup restored.</p>
-          <Summary s={step.summary} done />
+          <Summary s={step.summary} done bookmarks={step.bookmarks} />
         </div>
       )}
 

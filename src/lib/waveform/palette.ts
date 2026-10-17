@@ -1,4 +1,4 @@
-import type { Palette } from './draw'
+import type { Palette, RegionPalette } from './draw'
 
 /**
  * The colours of the waveform: what has been played in the accent colour, what is still to come in a quiet neutral. A canvas
@@ -15,6 +15,10 @@ export interface WavePalette {
   played: Palette
   /** The lines that tell where a chapter begins, drawn over both. */
   marks: string
+  /** The part of the track that repeats: shaded in the accent colour, with solid edges. */
+  region: RegionPalette
+  /** The flags that mark bookmarks: a colour that is neither the accent nor the white of the chapter lines. */
+  flag: string
 }
 
 function rgb(hex: string): [number, number, number] | null {
@@ -26,11 +30,21 @@ function rgb(hex: string): [number, number, number] | null {
 }
 
 export function paletteFor(accent: string | null | undefined, forcedColors: boolean): WavePalette {
-  if (forcedColors) return { base: { peak: 'GrayText', body: 'CanvasText' }, played: { peak: 'Highlight', body: 'Highlight' }, marks: 'CanvasText' }
+  if (forcedColors) {
+    return {
+      base: { peak: 'GrayText', body: 'CanvasText' },
+      played: { peak: 'Highlight', body: 'Highlight' },
+      marks: 'CanvasText',
+      region: { fill: 'transparent', edge: 'Highlight' }, // a shaded band would hide the waveform: the edges say it
+      flag: 'Highlight',
+    }
+  }
   const [r, g, b] = (accent ? rgb(accent) : null) ?? rgb(DEFAULT_ACCENT) ?? [167, 139, 250]
   return {
     base: { peak: 'rgba(255, 255, 255, 0.22)', body: 'rgba(255, 255, 255, 0.42)' },
     played: { peak: `rgba(${r}, ${g}, ${b}, 0.5)`, body: `rgb(${r}, ${g}, ${b})` },
     marks: 'rgba(255, 255, 255, 0.7)',
+    region: { fill: `rgba(${r}, ${g}, ${b}, 0.28)`, edge: `rgb(${r}, ${g}, ${b})` },
+    flag: 'rgb(251, 191, 36)',
   }
 }
