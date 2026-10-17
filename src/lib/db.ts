@@ -1,29 +1,8 @@
 import type { MetaValues, TrackRecord } from '../types'
+import { open } from './idb'
 import { normalizeMeta } from './trackmeta'
 
-/** Tiny IndexedDB wrapper: `tracks` (audio blobs + metadata) and `meta` (order, playlists, resume point). */
-const DB_NAME = 'wavelocal'
-let dbPromise: Promise<IDBDatabase> | null = null
-
-function open(): Promise<IDBDatabase> {
-  if (dbPromise) return dbPromise
-  const p = new Promise<IDBDatabase>((resolve, reject) => {
-    if (typeof indexedDB === 'undefined') return reject(new Error('IndexedDB unavailable'))
-    const r = indexedDB.open(DB_NAME, 1)
-    r.onupgradeneeded = () => {
-      const d = r.result
-      if (!d.objectStoreNames.contains('tracks')) d.createObjectStore('tracks', { keyPath: 'id' })
-      if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta')
-    }
-    r.onsuccess = () => resolve(r.result)
-    r.onerror = () => reject(r.error)
-  })
-  dbPromise = p
-  p.catch(() => {
-    dbPromise = null
-  })
-  return p
-}
+/** Tiny IndexedDB wrapper: `tracks` (audio blobs + metadata) and `meta` (order, playlists, resume point). The connection is `idb.ts`. */
 
 function run<T = undefined>(store: 'tracks' | 'meta', mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest | void): Promise<T> {
   return open().then(

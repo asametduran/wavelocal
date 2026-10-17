@@ -1,6 +1,9 @@
+import { useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { Pause, Play, Repeat, Repeat1, Shuffle, SkipBack, SkipForward, SlidersHorizontal, Volume1, Volume2, VolumeX } from 'lucide-react'
 import Cover from './Cover'
 import Slider from './Slider'
+import { Deferred, lazyRetry } from './lazy'
 import { formatTime } from '../lib/format'
 import { spokenPercent, spokenProgress } from '../lib/a11y'
 import { useSwipe } from '../hooks/useSwipe'
@@ -8,6 +11,37 @@ import type { PlayerApi } from '../types'
 
 const iconBtn =
   'grid h-9 w-9 place-items-center rounded-full text-zinc-400 transition hover:text-white active:scale-95 disabled:opacity-30 disabled:hover:text-zinc-400'
+
+// The waveform behind the seek bar is a lazy chunk (the start-up bundle has no room for it); the native range input stays the control.
+const WaveLayer = lazyRetry(() => import('./WaveLayer'))
+
+/**
+ * The seek bar: the range input, with the waveform of the file drawn behind it once that has loaded (unless the person chose the
+ * plain bar). The wrapper carries `--p` (how far the track has played) for the drawing's clip, and reserves the bar's height
+ * from the first paint so nothing jumps when the waveform arrives.
+ */
+function SeekBar({ p, big }: { p: PlayerApi; big: boolean }) {
+  const box = useRef<HTMLDivElement>(null)
+  const [reserve] = useState(() => {
+    try {
+      return localStorage.getItem('wl.seekbar') !== 'plain'
+    } catch {
+      return true
+    }
+  })
+  const { current, time, duration } = p
+  const pct = duration > 0 ? Math.min(100, (time / duration) * 100) : 0
+  return (
+    <div ref={box} className="seek" data-size={big ? 'big' : undefined} data-want={current && reserve ? 'wave' : undefined} style={{ '--p': `${pct}%` } as CSSProperties}>
+      {current && (
+        <Deferred label="the waveform" onDismiss={() => WaveLayer.reset()}>
+          <WaveLayer p={p} box={box} />
+        </Deferred>
+      )}
+      <Slider value={time} max={duration} step={0.1} onChange={p.seek} label="Seek" valueText={spokenProgress(time, duration)} />
+    </div>
+  )
+}
 
 /** Shuffle / prev / play / next / repeat + seek bar. `big` = thumb-sized for the phone sheet. */
 export function Transport({ p, big = false }: { p: PlayerApi; big?: boolean }) {
@@ -21,7 +55,7 @@ export function Transport({ p, big = false }: { p: PlayerApi; big?: boolean }) {
     <div className={`flex w-full items-center gap-1 ${big ? 'flex-col' : 'flex-col-reverse'}`}>
       <div className={`flex w-full items-center gap-3 tabular-nums text-zinc-400 ${big ? 'mb-3 text-xs' : 'max-w-2xl text-[11px]'}`}>
         <span className="w-10 text-right" aria-hidden="true">{formatTime(time)}</span>
-        <Slider value={time} max={duration} step={0.1} onChange={p.seek} label="Seek" valueText={spokenProgress(time, duration)} />
+        <SeekBar p={p} big={big} />
         <span className="w-10" aria-hidden="true">{formatTime(duration)}</span>
       </div>
       <div className={`flex items-center ${big ? 'w-full justify-between' : 'gap-1 sm:gap-2'}`}>

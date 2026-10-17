@@ -217,10 +217,11 @@ export function createWorkerConvert(): ConvertFn {
         else if (message.type === 'done') {
           pending.delete(message.id)
           job.resolve(message.result)
-        } else {
+        } else if (message.type === 'error') {
           pending.delete(message.id)
           job.reject(new AudioDecodeError(message.message, message.code === 'failed' ? 'corrupt' : message.code))
         }
+        // 'peaks-done' belongs to the waveform's own instance of this worker (waveform/client.ts), which this one never asks
       }
       w.onerror = () => {
         broken = true

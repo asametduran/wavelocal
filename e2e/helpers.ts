@@ -8,6 +8,7 @@ import { sine } from '../src/test-utils/signals'
 import { encodeWav } from '../src/test-utils/wav'
 import type { FixtureName } from '../src/test-utils/fixtures'
 import type { FlacEncodeOptions } from '../src/test-utils/flac-encoder'
+import { realMp3, realOgg } from './realAudio'
 
 export interface Upload {
   name: string
@@ -78,6 +79,10 @@ export const song = (name: string, tags: Id3Fields, frames = 60): Upload => ({
   mimeType: 'audio/mpeg',
   buffer: Buffer.from(withId3(buildId3v2(tags), buildMp3({ frames }))),
 })
+
+/** A real, decodable MP3 and Ogg Vorbis (a 1 kHz tone: 1.5 s loud, 1 s silent, 1.5 s quiet; see realAudio.ts). */
+export const realMp3File = (name: string): Upload => ({ name, mimeType: 'audio/mpeg', buffer: realMp3() })
+export const realOggFile = (name: string): Upload => ({ name, mimeType: 'audio/ogg', buffer: realOgg() })
 
 /** A very short tone, for tests that need many cheap tracks. */
 export const tone = (name: string, seconds = 0.1, frequency = 440): Upload => ({
@@ -417,6 +422,30 @@ export class PlayerPage {
           open.onerror = () => reject(open.error)
         }),
       key,
+    )
+  }
+
+  /** The waveform kept for a track (`peaks:<id>` in `meta`) with its arrays as plain numbers, or null when there is none. */
+  async storedPeaks(id: string): Promise<{ v: number; duration: number; length: number; peak: number[]; rms: number[] } | { v: number; none: string } | null> {
+    return this.page.evaluate(
+      (key) =>
+        new Promise<{ v: number; duration: number; length: number; peak: number[]; rms: number[] } | { v: number; none: string } | null>((resolve, reject) => {
+          const open = indexedDB.open('wavelocal', 1)
+          open.onsuccess = () => {
+            const db = open.result
+            const req = db.transaction('meta', 'readonly').objectStore('meta').get(key)
+            req.onsuccess = () => {
+              const value = req.result as { v: number; duration?: number; length?: number; peak?: Uint8Array; rms?: Uint8Array; none?: string } | undefined
+              db.close()
+              if (!value) return resolve(null)
+              if (value.none) return resolve({ v: value.v, none: value.none })
+              resolve({ v: value.v, duration: value.duration ?? 0, length: value.length ?? 0, peak: [...(value.peak ?? [])], rms: [...(value.rms ?? [])] })
+            }
+            req.onerror = () => reject(req.error)
+          }
+          open.onerror = () => reject(open.error)
+        }),
+      `peaks:${id}`,
     )
   }
 

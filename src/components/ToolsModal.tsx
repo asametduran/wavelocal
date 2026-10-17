@@ -12,6 +12,7 @@ import HotkeysSection from './HotkeysSection'
 import ReverbSection from './ReverbSection'
 import ShareSection from './ShareSection'
 import SpatialSection from './SpatialSection'
+import SeekBarSection from './SeekBarSection'
 import StorageSection from './StorageSection'
 import type { CSSProperties } from 'react'
 import type { PlayerApi, TransitionMode } from '../types'
@@ -163,6 +164,8 @@ export default function ToolsModal({ p, open, onClose, accent, setAccent }: Tool
             {motion === 'system' ? ' Follows your device setting.' : ''}
           </p>
         </section>
+
+        <SeekBarSection />
 
         <section aria-label="Sleep timer" className="mt-6">
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">

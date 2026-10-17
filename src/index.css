@@ -43,6 +43,29 @@ input[type=range].slider.always::-moz-range-thumb { width: 14px; height: 14px; }
   input[type=range].slider::-moz-range-thumb { width: 16px; height: 16px; }
 }
 
+/* ---- Waveform seek bar (PlayerBar.tsx SeekBar + WaveLayer.tsx). The native range input stays the control. The wrapper reserves the
+   bar's height from the first paint (data-want); once the waveform is drawn behind the input (data-wave="on") the input is laid
+   over it with a transparent track and a thin playhead as its thumb, so a click or a drag maps linearly over the whole width. ---- */
+.seek { position: relative; flex: 1 1 0%; min-width: 0; }
+.seek[data-want='wave'] { display: flex; align-items: center; height: 2.25rem; }
+.seek[data-want='wave'][data-size='big'] { height: 3.5rem; }
+.seek[data-wave='off'] { display: block; height: auto; }
+.seek[data-wave='on'] { display: block; height: 2.25rem; }
+.seek[data-wave='on'][data-size='big'] { height: 3.5rem; }
+.seek[data-wave='on'] input[type=range].slider { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; border-radius: 0; background: transparent; }
+.seek[data-wave='on'] input[type=range].slider::-webkit-slider-runnable-track { height: 2.25rem; background: transparent; }
+.seek[data-wave='on'][data-size='big'] input[type=range].slider::-webkit-slider-runnable-track { height: 3.5rem; }
+.seek[data-wave='on'] input[type=range].slider::-webkit-slider-thumb { width: 3px; height: 2.25rem; margin-top: 0; border-radius: 2px; background: #fff; opacity: 1; box-shadow: 0 0 0 1px rgba(0, 0, 0, .55); }
+.seek[data-wave='on'][data-size='big'] input[type=range].slider::-webkit-slider-thumb { height: 3.5rem; }
+.seek[data-wave='on'] input[type=range].slider::-moz-range-track { background: transparent; height: 2.25rem; }
+.seek[data-wave='on'] input[type=range].slider::-moz-range-thumb { width: 3px; height: 2.25rem; border: 0; border-radius: 2px; background: #fff; }
+.seek[data-wave='on'][data-size='big'] input[type=range].slider::-moz-range-track, .seek[data-wave='on'][data-size='big'] input[type=range].slider::-moz-range-thumb { height: 3.5rem; }
+@media (forced-colors: active) {
+  .seek[data-wave='on'] input[type=range].slider { background: transparent; }
+  .seek[data-wave='on'] input[type=range].slider::-webkit-slider-thumb { background: Highlight; box-shadow: none; }
+  .seek[data-wave='on'] input[type=range].slider::-moz-range-thumb { background: Highlight; }
+}
+
 /* ---- Reduced motion: set by the OS preference or the in-app Motion setting (lib/motion.ts toggles the class) ---- */
 html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after {
   animation-duration: 0.01ms !important;
