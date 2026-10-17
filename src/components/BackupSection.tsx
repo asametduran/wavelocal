@@ -44,9 +44,15 @@ export default function BackupSection({ p }: { p: PlayerApi }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const download = () => {
+  const download = async () => {
     setError(null)
-    const blob = new Blob([p.exportBackup()], { type: 'application/json' })
+    let text: string
+    try {
+      text = await p.exportBackup()
+    } catch {
+      return setError('Could not make the backup. Check your connection and try again.')
+    }
+    const blob = new Blob([text], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -66,7 +72,7 @@ export default function BackupSection({ p }: { p: PlayerApi }) {
     try {
       const parsed = parseBackup(await file.text())
       if (!parsed.ok) return setError(parsed.error)
-      setStep({ kind: 'preview', backup: parsed.backup, summary: p.previewBackup(parsed.backup), fileName: file.name, skipped: parsed.skipped })
+      setStep({ kind: 'preview', backup: parsed.backup, summary: await p.previewBackup(parsed.backup), fileName: file.name, skipped: parsed.skipped })
     } catch {
       setError('Could not read that file.')
     } finally {
@@ -112,8 +118,9 @@ export default function BackupSection({ p }: { p: PlayerApi }) {
             <button
               type="button"
               className={primary}
-              onClick={() => {
-                setStep({ kind: 'done', summary: p.applyBackup(step.backup) })
+              onClick={async () => {
+                const summary = await p.applyBackup(step.backup)
+                setStep({ kind: 'done', summary })
               }}
             >
               Restore

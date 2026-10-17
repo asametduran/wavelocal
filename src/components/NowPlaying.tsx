@@ -1,23 +1,41 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { FolderOpen, Headphones, Upload } from 'lucide-react'
 import Cover from './Cover'
 import FormatBadge from './FormatBadge'
 import Lyrics from './Lyrics'
 import RovingGroup from './RovingGroup'
 import Visualizer from './Visualizer'
+import { Deferred, lazyRetry, preloadWhenIdle } from './lazy'
 import type { PlayerApi } from '../types'
 
-export type StageTab = 'art' | 'lyrics'
+export type StageTab = 'art' | 'lyrics' | 'queue'
+
+// The Up Next list is only fetched when its tab is first opened (or the app is idle).
+export const loadUpNext = () => import('./UpNextPanel')
+const UpNextPanel = lazyRetry(loadUpNext)
+
+/** The panel of the Up Next tab. */
+export function UpNextStage({ p, idBase, className }: { p: PlayerApi; idBase: string; className: string }) {
+  return (
+    <div role="tabpanel" id={`${idBase}-panel`} aria-labelledby={`${idBase}-queue`} className={className}>
+      <Deferred label="the Up Next list" onDismiss={() => UpNextPanel.reset()}>
+        <UpNextPanel p={p} />
+      </Deferred>
+    </div>
+  )
+}
 
 interface StageTabsProps {
   tab: StageTab
   setTab: (tab: StageTab) => void
   hasLyrics: boolean
+  /** How many tracks are queued by hand. */
+  queued: number
   /** Unique prefix tying the tabs to their panel (`${idBase}-panel`) so two instances never share ids. */
   idBase: string
 }
 
-export function StageTabs({ tab, setTab, hasLyrics, idBase }: StageTabsProps) {
+export function StageTabs({ tab, setTab, hasLyrics, queued, idBase }: StageTabsProps) {
   const btn = (id: StageTab, label: string) => (
     <button
       role="tab"
@@ -26,7 +44,8 @@ export function StageTabs({ tab, setTab, hasLyrics, idBase }: StageTabsProps) {
       aria-controls={`${idBase}-panel`}
       tabIndex={tab === id ? 0 : -1}
       onClick={() => setTab(id)}
-      className={`relative rounded-full px-4 py-1.5 text-sm font-semibold transition ${tab === id ? 'bg-white text-black' : 'text-zinc-300 hover:bg-white/10'}`}
+      // a phone's sheet header is narrow: three labels share what the buttons beside them leave, so they stay on one line
+      className={`relative whitespace-nowrap rounded-full px-2.5 py-1.5 text-sm font-semibold transition max-[374px]:px-2 sm:px-4 ${tab === id ? 'bg-white text-black' : 'text-zinc-300 hover:bg-white/10'}`}
     >
       {label}
       {id === 'lyrics' && hasLyrics && tab !== id && (
@@ -35,12 +54,21 @@ export function StageTabs({ tab, setTab, hasLyrics, idBase }: StageTabsProps) {
           <span className="sr-only"> (available)</span>
         </>
       )}
+      {id === 'queue' && queued > 0 && (
+        <>
+          <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-bold leading-none tabular-nums text-on-accent" aria-hidden="true">
+            {queued}
+          </span>
+          <span className="sr-only"> ({queued} queued)</span>
+        </>
+      )}
     </button>
   )
   return (
     <RovingGroup role="tablist" label="Stage view" className="flex gap-1 rounded-full bg-white/5 p-1">
       {btn('art', 'Artwork')}
       {btn('lyrics', 'Lyrics')}
+      {btn('queue', 'Up Next')}
     </RovingGroup>
   )
 }
@@ -55,6 +83,7 @@ export default function NowPlaying({ p, onPickFiles, onPickFolder }: NowPlayingP
   const { current, playing } = p
   const [tab, setTab] = useState<StageTab>('art')
   const idBase = useId()
+  useEffect(() => preloadWhenIdle([loadUpNext]), [])
 
   return (
     <section aria-label="Now playing" className="relative hidden min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-6 py-6 md:flex">
@@ -65,7 +94,7 @@ export default function NowPlaying({ p, onPickFiles, onPickFolder }: NowPlayingP
 
       {current ? (
         <div className="relative z-10 flex h-full min-h-0 w-full max-w-lg flex-col items-center gap-4">
-          <StageTabs tab={tab} setTab={setTab} hasLyrics={!!current.lyrics} idBase={idBase} />
+          <StageTabs tab={tab} setTab={setTab} hasLyrics={!!current.lyrics} queued={p.upNext.length} idBase={idBase} />
 
           {tab === 'art' ? (
             <div key={current.id} role="tabpanel" id={`${idBase}-panel`} aria-labelledby={`${idBase}-art`} className="flex min-h-0 w-full flex-1 animate-fadeIn flex-col items-center justify-center text-center">
@@ -78,6 +107,8 @@ export default function NowPlaying({ p, onPickFiles, onPickFolder }: NowPlayingP
               <FormatBadge audio={current.audio} className="mt-1" />
               <Visualizer engine={p.engine} playing={playing} className="mt-5 h-16 max-w-md" />
             </div>
+          ) : tab === 'queue' ? (
+            <UpNextStage p={p} idBase={idBase} className="flex min-h-0 w-full flex-1 flex-col" />
           ) : (
             <div role="tabpanel" id={`${idBase}-panel`} aria-labelledby={`${idBase}-lyrics`} className="flex min-h-0 w-full flex-1 flex-col">
               <div className="mb-2 text-center">

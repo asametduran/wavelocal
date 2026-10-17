@@ -4,6 +4,9 @@ import type { PlayerApi } from '../types'
 const BACK_KEYS = new Set(['Escape', 'GoBack', 'BrowserBack', 'XF86Back'])
 const BACK_CODES = new Set([10009, 461]) // Tizen / webOS remotes
 
+/** Escape, and the Back keys of TV remotes and browsers: the keys that close the topmost layer. */
+export const isBackKey = (e: { key: string; keyCode: number }): boolean => BACK_KEYS.has(e.key) || BACK_CODES.has(e.keyCode)
+
 /** The slice of the player API the hotkeys drive. */
 export type HotkeyPlayer = Pick<PlayerApi, 'toggle' | 'next' | 'prev' | 'seekBy' | 'volumeBy' | 'toggleMute' | 'toggleShuffle' | 'cycleRepeat'>
 
@@ -45,7 +48,7 @@ export function useHotkeys(p: HotkeyPlayer, { focusSearch, onBack, tv, toggleTv,
         media()
         return
       }
-      if ((BACK_KEYS.has(k) || BACK_CODES.has(e.keyCode)) && onBack?.()) {
+      if (isBackKey(e) && onBack?.()) {
         e.preventDefault()
         return
       }

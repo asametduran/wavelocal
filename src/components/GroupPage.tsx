@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ListPlus, Play, Shuffle } from 'lucide-react'
+import { ChevronLeft, ListEnd, ListPlus, ListStart, Play, Shuffle } from 'lucide-react'
 import Cover from './Cover'
 import PlaylistMenu from './PlaylistMenu'
 import TrackList from './TrackList'
@@ -9,7 +9,9 @@ import { announce } from '../lib/a11y'
 import { countLabel } from '../lib/format'
 import { groupOf } from '../lib/groups'
 import type { Groups } from '../lib/groups'
+import { promptDialog } from '../lib/overlays'
 import { albumMeta, albumRows, artistMeta, artistRows } from '../lib/pages'
+import { queueTracks } from '../lib/queueactions'
 import { fold } from '../lib/search'
 import type { Query } from '../lib/search'
 import type { PlayerApi, Track } from '../types'
@@ -62,18 +64,20 @@ export default function GroupPage({ p, groups, page, query, browse, home, onEdit
     setAdding(false)
     if (restoreFocus) requestAnimationFrame(() => addButton.current?.focus())
   }
-  const addAll = (playlistId: string | null) => {
+  const addAll = async (playlistId: string | null) => {
+    // focus goes back to the button now, so it is where the dialog (and then the page) finds it
+    addButton.current?.focus()
+    setAdding(false)
     if (playlistId === null) {
-      const name = window.prompt('Name your new playlist')
+      const name = await promptDialog({ title: 'New playlist', label: 'Playlist name', value: title, confirmLabel: 'Create' })
       if (name === null) return
       p.createPlaylist(name, ids)
       announce(`Created playlist ${name.trim() || 'New playlist'} with ${countLabel(ids.length, 'track')}`)
-    } else {
-      const added = p.addTracksToPlaylist(playlistId, ids)
-      const name = p.playlists.find((pl) => pl.id === playlistId)?.name ?? 'the playlist'
-      announce(added ? `Added ${countLabel(added, 'track')} to ${name}` : `${name} already has ${ids.length === 1 ? 'this track' : 'all of these tracks'}`)
+      return
     }
-    closeMenu(true)
+    const added = p.addTracksToPlaylist(playlistId, ids)
+    const name = p.playlists.find((pl) => pl.id === playlistId)?.name ?? 'the playlist'
+    announce(added ? `Added ${countLabel(added, 'track')} to ${name}` : `${name} already has ${ids.length === 1 ? 'this track' : 'all of these tracks'}`)
   }
 
   return (
@@ -113,6 +117,12 @@ export default function GroupPage({ p, groups, page, query, browse, home, onEdit
           </button>
           <button type="button" onClick={() => p.playFrom(ids, { shuffle: true })} aria-label={`Shuffle ${title}`} className={`${pill} bg-white/10 text-white hover:bg-white/15`}>
             <Shuffle size={14} aria-hidden="true" /> Shuffle
+          </button>
+          <button type="button" onClick={() => queueTracks(p, 'next', tracks)} aria-label={`Play next: ${title}`} className={`${pill} bg-white/10 text-white hover:bg-white/15`}>
+            <ListStart size={15} aria-hidden="true" /> Play next
+          </button>
+          <button type="button" onClick={() => queueTracks(p, 'last', tracks)} aria-label={`Add to queue: ${title}`} className={`${pill} bg-white/10 text-white hover:bg-white/15`}>
+            <ListEnd size={15} aria-hidden="true" /> Add to queue
           </button>
           <div className="relative">
             <button ref={addButton} type="button" onClick={() => setAdding((a) => !a)} aria-haspopup="menu" aria-expanded={adding} aria-label={`Add to playlist: ${title}`} className={`${pill} bg-white/10 text-white hover:bg-white/15`}>

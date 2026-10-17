@@ -318,8 +318,8 @@ test.describe('equalizer: parametric view', () => {
     test('save, reset and load a custom curve', async () => {
       await customise()
       const edited = (await handle(3).getAttribute('aria-valuetext')) ?? ''
-      app.answerNextDialog(true, 'My curve')
       await section().getByRole('button', { name: 'Save preset…' }).click()
+      await app.answerDialog(true, 'My curve')
       const preset = section().getByRole('button', { name: 'My curve', exact: true })
       await expect(preset).toBeVisible()
       await expect(preset).toHaveAttribute('aria-pressed', 'true') // the current curve is that preset
@@ -338,8 +338,8 @@ test.describe('equalizer: parametric view', () => {
       await parametric()
       await section().getByRole('button', { name: '+ Add band' }).click()
       await slider('Band gain').fill('4')
-      app.answerNextDialog(true, 'Eleven')
       await section().getByRole('button', { name: 'Save preset…' }).click()
+      await app.answerDialog(true, 'Eleven')
       await section().getByRole('button', { name: 'Reset', exact: true }).click()
       await expect(chips()).toHaveCount(11) // 10 bands + "Add band"
       await section().getByRole('button', { name: 'Eleven', exact: true }).click()
@@ -349,11 +349,11 @@ test.describe('equalizer: parametric view', () => {
 
     test('saving under an existing name (any case) overwrites it', async () => {
       await customise()
-      app.answerNextDialog(true, 'Dup')
       await section().getByRole('button', { name: 'Save preset…' }).click()
+      await app.answerDialog(true, 'Dup')
       await slider('Band gain').fill('-4')
-      app.answerNextDialog(true, 'dUP')
       await section().getByRole('button', { name: 'Save preset…' }).click()
+      await app.answerDialog(true, 'dUP')
       await expect(section().getByRole('button', { name: /^dup$/i })).toHaveCount(1)
       await section().getByRole('button', { name: 'Reset', exact: true }).click()
       await section().getByRole('button', { name: 'Dup', exact: true }).click()
@@ -362,15 +362,15 @@ test.describe('equalizer: parametric view', () => {
 
     test('cancelling the name prompt saves nothing', async () => {
       await customise()
-      app.answerNextDialog(false)
       await section().getByRole('button', { name: 'Save preset…' }).click()
+      await app.answerDialog(false)
       await expect(section().getByRole('group', { name: /^Custom preset/ })).toHaveCount(0)
     })
 
     test('presets can be deleted', async () => {
       await customise()
-      app.answerNextDialog(true, 'Temp')
       await section().getByRole('button', { name: 'Save preset…' }).click()
+      await app.answerDialog(true, 'Temp')
       await expect(section().getByRole('button', { name: 'Temp', exact: true })).toBeVisible()
       await section().getByRole('button', { name: 'Delete preset Temp' }).click()
       await expect(section().getByRole('button', { name: 'Temp', exact: true })).toHaveCount(0)
@@ -378,8 +378,8 @@ test.describe('equalizer: parametric view', () => {
 
     test('presets and the current curve survive a reload', async () => {
       await customise()
-      app.answerNextDialog(true, 'Keeper')
       await section().getByRole('button', { name: 'Save preset…' }).click()
+      await app.answerDialog(true, 'Keeper')
       const edited = (await handle(3).getAttribute('aria-valuetext')) ?? ''
       await app.closeTools()
 

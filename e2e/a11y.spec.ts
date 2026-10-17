@@ -38,7 +38,8 @@ test.describe('automated audit (axe-core, WCAG 2.2 AA + best practices)', () => 
   })
 
   test('library with a playing track, both stage tabs and search', async ({ page }) => {
-    await app.importFiles(wav('tone-440', 'a.wav'), wav('tone-880', 'b.wav'), lrc('a.lrc', LINES))
+    // a is the 30 s fixture: a 4 s track can end while the audits are still scanning, and b (which plays after it) has no lyrics
+    await app.importFiles(wav('long', 'a.wav'), wav('tone-880', 'b.wav'), lrc('a.lrc', LINES))
     await app.play('a')
     await expectNoViolations(page, 'artwork tab')
     await app.stage.getByRole('tab', { name: /^Lyrics/ }).click()
@@ -181,8 +182,10 @@ test.describe('keyboard and focus', () => {
     await app.play('a')
     const art = app.stage.getByRole('tab', { name: 'Artwork' })
     const lyrics = app.stage.getByRole('tab', { name: /^Lyrics/ })
+    const queue = app.stage.getByRole('tab', { name: /^Up Next/ })
     await expect(art).toHaveAttribute('tabindex', '0')
     await expect(lyrics).toHaveAttribute('tabindex', '-1')
+    await expect(queue).toHaveAttribute('tabindex', '-1')
     await art.focus()
     await page.keyboard.press('ArrowRight')
     await expect(lyrics).toBeFocused()
@@ -191,11 +194,15 @@ test.describe('keyboard and focus', () => {
     const panel = app.stage.getByRole('tabpanel')
     await expect(panel).toBeVisible()
     await expect(panel).toHaveAccessibleName(/Lyrics/)
+    await page.keyboard.press('ArrowRight')
+    await expect(queue).toBeFocused()
+    await expect(queue).toHaveAttribute('aria-selected', 'true')
+    await expect(panel).toHaveAccessibleName(/Up Next/)
     await page.keyboard.press('ArrowRight') // wraps
     await expect(art).toBeFocused()
     await expect(art).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('End')
-    await expect(lyrics).toBeFocused()
+    await expect(queue).toBeFocused()
     await page.keyboard.press('Home')
     await expect(art).toBeFocused()
   })

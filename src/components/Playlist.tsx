@@ -1,18 +1,20 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, RefObject } from 'react'
-import { FolderOpen, Plus, Trash2, Tv } from 'lucide-react'
+import { Ellipsis, FolderOpen, Plus, Trash2, Tv } from 'lucide-react'
 import ModeTabs from './ModeTabs'
 import SearchBox from './SearchBox'
 import SortMenu from './SortMenu'
 import TrackList from './TrackList'
 import type { ListRow } from './TrackList'
 import { Deferred, lazyRetry, preloadWhenIdle } from './lazy'
+import type { FocusTarget } from './ActionsMenu'
 import { useBrowse } from '../hooks/useBrowse'
 import type { BrowseApi } from '../hooks/useBrowse'
 import { announce, matchAnnouncement, sortAnnouncement } from '../lib/a11y'
 import { BROWSE_MODES } from '../lib/browse'
 import type { BrowseMode } from '../lib/browse'
 import { listSummary } from '../lib/format'
+import { confirmDialog, promptDialog } from '../lib/overlays'
 import { matches, parseQuery, searchEntry } from '../lib/search'
 import { SMART_LISTS, smartCounts, smartDetail, smartList } from '../lib/smart'
 import { SORT_KEYS, describeSort, directionWords } from '../lib/sort'
@@ -20,13 +22,15 @@ import type { SortKey, SortSpec } from '../lib/sort'
 import { sortDetail } from '../lib/view'
 import type { PlayerApi, Track } from '../types'
 
-// Code for the folder tree, the tag editor and the album and artist views is only fetched when first asked for.
+// Code for the folder tree, the tag editor, the album and artist views and the playlist menu is only fetched when first asked for.
 const loadFolderTree = () => import('./FolderTree')
 const loadTagEditor = () => import('./TagEditor')
 const loadBrowse = () => import('./Browse')
+const loadActions = () => import('./ActionsMenu')
 const FolderTree = lazyRetry(loadFolderTree)
 const TagEditor = lazyRetry(loadTagEditor)
 const Browse = lazyRetry(loadBrowse)
+const ActionsMenu = lazyRetry(loadActions)
 
 const ALL_MODES: readonly BrowseMode[] = BROWSE_MODES.map((m) => m.mode)
 
@@ -57,7 +61,10 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
   const idBase = useId()
   const [text, setText] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
-  useEffect(() => preloadWhenIdle([loadFolderTree, loadTagEditor, loadBrowse]), [])
+  const [actionsOpen, setActionsOpen] = useState(false)
+  const actionsButton = useRef<HTMLButtonElement>(null)
+  const chooser = useRef<HTMLSelectElement>(null)
+  useEffect(() => preloadWhenIdle([loadFolderTree, loadTagEditor, loadBrowse, loadActions]), [])
   const editing = editingId ? (p.tracks.find((t) => t.id === editingId) ?? null) : null
 
   const query = useMemo(() => parseQuery(text), [text])
@@ -77,6 +84,7 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
   // another list means other albums and artists: whatever page was open belongs to the old one
   const { reset: closePages } = browse
   useEffect(() => closePages(), [p.viewId, closePages])
+  useEffect(() => setActionsOpen(false), [p.viewId])
 
   const rows = useMemo<ListRow[]>(
     () => p.queue.flatMap((t, index): ListRow[] => (query.empty || matches(query, searchEntry(t)) ? [{ kind: 'track', t, index }] : [])),
@@ -97,25 +105,40 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
     announce(sortAnnouncement(describeSort(next, manualName), next.key === 'library'))
   }
 
-  const onView = (e: ChangeEvent<HTMLSelectElement>) => {
+  const onView = async (e: ChangeEvent<HTMLSelectElement>) => {
     const v = e.target.value
-    if (v === '__new') {
-      const name = window.prompt('Name your new playlist')
-      if (name !== null) p.setViewId(p.createPlaylist(name))
-      return
-    }
-    p.setViewId(v)
+    if (v !== '__new') return p.setViewId(v)
+    const name = await promptDialog({ title: 'New playlist', label: 'Playlist name', placeholder: 'My playlist', confirmLabel: 'Create' })
+    if (name !== null) p.setViewId(p.createPlaylist(name))
   }
 
-  const onDelete = () => {
+  /** Clearing play counts and the library cannot be taken back, so they ask first (a playlist can be undone, so it does not). */
+  const onClear = async () => {
     if (smart) {
-      if (window.confirm('Start the play counts over? "Most played" and "Recently played" begin again. Your music is not touched.')) {
-        p.resetPlays()
-        announce('Play counts cleared')
-      }
-    } else if (inPlaylist) {
-      if (window.confirm(`Delete playlist "${playlist?.name}"? Your tracks stay in the library.`)) p.deletePlaylist(p.viewId)
-    } else if (window.confirm('Remove every track from your library? This clears the offline copy too.')) p.clear()
+      const ok = await confirmDialog({
+        title: 'Start the play counts over?',
+        message: 'Most played and Recently played begin again. Your music is not touched.',
+        confirmLabel: 'Clear play counts',
+        danger: true,
+      })
+      if (!ok) return
+      p.resetPlays()
+      announce('Play counts cleared')
+    } else if (
+      await confirmDialog({
+        title: 'Remove every track from your library?',
+        message: 'This clears the offline copy kept on this device too. The files you added from your device are not touched.',
+        confirmLabel: 'Clear library',
+        danger: true,
+      })
+    )
+      p.clear()
+  }
+
+  const closeActions = (focus: FocusTarget) => {
+    setActionsOpen(false)
+    if (focus === 'button') actionsButton.current?.focus()
+    else if (focus === 'chooser') chooser.current?.focus()
   }
 
   const detail = smart ? (t: Track) => smartDetail(smart.kind, t, now) : (t: Track) => sortDetail(p.sort.key, t, now)
@@ -149,6 +172,7 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
         <label className="min-w-0 flex-1">
           <span className="sr-only">Library or playlist</span>
           <select
+            ref={chooser}
             value={p.viewId}
             onChange={onView}
             className="w-full truncate rounded-lg bg-transparent py-1 text-sm font-semibold uppercase tracking-wider text-zinc-300 outline-none hover:bg-white/5"
@@ -170,7 +194,7 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
           </select>
         </label>
         <div className="flex shrink-0 gap-1">
-          <button onClick={onPickFiles} className={headBtn} aria-label="Add files" title="Add files">
+          <button onClick={onPickFiles} className={headBtn} aria-label="Add files" title="Add files or a playlist file">
             <Plus size={18} />
           </button>
           <button onClick={onPickFolder} className={headBtn} aria-label="Add folder" title="Add folder">
@@ -181,15 +205,36 @@ export default function Playlist({ p, id, label = 'Library', searchRef, onPickFi
               <Tv size={16} />
             </button>
           )}
-          <button
-            onClick={onDelete}
-            disabled={smart ? !anyPlays : !inPlaylist && !p.tracks.length}
-            className={`${headBtn} hover:!text-red-400 disabled:opacity-30`}
-            aria-label={smart ? 'Clear play counts' : inPlaylist ? 'Delete playlist' : 'Clear library'}
-            title={smart ? 'Clear play counts' : inPlaylist ? 'Delete playlist' : 'Clear library'}
-          >
-            <Trash2 size={16} />
-          </button>
+          {inPlaylist && playlist ? (
+            <div className="relative">
+              <button
+                ref={actionsButton}
+                onClick={() => setActionsOpen((open) => !open)}
+                aria-haspopup="menu"
+                aria-expanded={actionsOpen}
+                className={headBtn}
+                aria-label="Playlist actions"
+                title="Playlist actions"
+              >
+                <Ellipsis size={18} />
+              </button>
+              {actionsOpen && (
+                <Deferred label="the playlist menu" onDismiss={() => (ActionsMenu.reset(), setActionsOpen(false))}>
+                  <ActionsMenu p={p} playlist={playlist} onClose={closeActions} />
+                </Deferred>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={() => void onClear()}
+              disabled={smart ? !anyPlays : !p.tracks.length}
+              className={`${headBtn} hover:!text-red-400 disabled:opacity-30`}
+              aria-label={smart ? 'Clear play counts' : 'Clear library'}
+              title={smart ? 'Clear play counts' : 'Clear library'}
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
         </div>
       </div>
 

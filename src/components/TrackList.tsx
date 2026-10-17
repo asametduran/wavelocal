@@ -6,7 +6,9 @@ import PlaylistMenu from './PlaylistMenu'
 import { useRemScale } from '../hooks/useRemScale'
 import { announce, moveAnnouncement } from '../lib/a11y'
 import { formatTime } from '../lib/format'
+import { promptDialog } from '../lib/overlays'
 import type { PageRow } from '../lib/pages'
+import { queueTracks } from '../lib/queueactions'
 import type { PlayerApi, Track } from '../types'
 
 /** A row of the list: a track, or a heading that sets the tracks after it apart (a disc, an album on an artist's page). */
@@ -111,12 +113,18 @@ export default function TrackList({ p, rows, label, lead = 'cover', reorderable 
     announce('Added to playlist')
     closeMenu(true)
   }
-  const addToNew = (trackId: string) => {
-    const name = window.prompt('Name your new playlist')
+  const queueIt = (kind: 'next' | 'last', t: Track) => {
+    queueTracks(p, kind, [t])
+    closeMenu(true)
+  }
+  const addToNew = async (trackId: string) => {
+    // focus goes back to the button now, so it is where the dialog (and then the page) finds it
+    setMenuFor(null)
+    listRef.current?.querySelector<HTMLElement>(`button[data-menu-trigger="${CSS.escape(trackId)}"]`)?.focus()
+    const name = await promptDialog({ title: 'New playlist', label: 'Playlist name', placeholder: 'My playlist', confirmLabel: 'Create' })
     if (name === null) return
     p.createPlaylist(name, [trackId])
     announce('Added to new playlist')
-    closeMenu(true)
   }
 
   /** Alt+Up / Alt+Down on a track moves it in the queue: the keyboard alternative to dragging. */
@@ -235,7 +243,7 @@ export default function TrackList({ p, rows, label, lead = 'cover', reorderable 
             <button onClick={() => (setMenuFor(null), onEdit(t.id))} className={rowBtn} aria-label={`Edit tags of ${t.title}`} aria-haspopup="dialog">
               <Pencil size={14} />
             </button>
-            <button onClick={() => setMenuFor(menuFor === t.id ? null : t.id)} data-menu-trigger={t.id} className={rowBtn} aria-label={`Add ${t.title} to playlist`} aria-haspopup="menu" aria-expanded={menuFor === t.id}>
+            <button onClick={() => setMenuFor(menuFor === t.id ? null : t.id)} data-menu-trigger={t.id} className={rowBtn} aria-label={`Add ${t.title} to playlist or queue`} aria-haspopup="menu" aria-expanded={menuFor === t.id}>
               <ListPlus size={15} />
             </button>
             {removable && (
@@ -243,7 +251,18 @@ export default function TrackList({ p, rows, label, lead = 'cover', reorderable 
                 <X size={14} />
               </button>
             )}
-            {menuFor === t.id && <PlaylistMenu playlists={others} label={`Add ${t.title} to a playlist`} onChoose={(plId) => (plId ? addTo(plId, t.id) : addToNew(t.id))} onClose={closeMenu} />}
+            {menuFor === t.id && (
+              <PlaylistMenu
+                playlists={others}
+                actions={[
+                  { label: 'Play next', run: () => queueIt('next', t) },
+                  { label: 'Add to queue', run: () => queueIt('last', t) },
+                ]}
+                label={`Add ${t.title} to a playlist or the queue`}
+                onChoose={(plId) => (plId ? addTo(plId, t.id) : void addToNew(t.id))}
+                onClose={closeMenu}
+              />
+            )}
           </li>
         )
       })}

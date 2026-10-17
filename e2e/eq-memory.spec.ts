@@ -129,9 +129,9 @@ test.describe('per-track equalizer memory', () => {
     await preset('Treble Boost').click()
     await app.page.waitForTimeout(300)
     await app.closeTools()
-
-    app.answerNextDialog(true)
     await app.sidebar.getByRole('button', { name: 'Clear library' }).click()
+
+    await app.answerDialog(true)
     await expect(app.rows).toHaveCount(0)
     await app.importFiles(wav('tone-440', 'a.wav'))
     await app.play('a')
@@ -141,8 +141,8 @@ test.describe('per-track equalizer memory', () => {
 
   test('the switch only appears when there is a track', async ({ page }) => {
     await app.closeTools()
-    app.answerNextDialog(true)
     await app.sidebar.getByRole('button', { name: 'Clear library' }).click()
+    await app.answerDialog(true)
     await expect(app.rows).toHaveCount(0)
     await app.openTools()
     await expect(section()).toBeVisible()

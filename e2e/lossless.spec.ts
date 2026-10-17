@@ -147,8 +147,8 @@ test.describe('lossless playback: the browser says it cannot play WAV/FLAC', () 
     await app.play('a')
     await expect.poll(() => app.playingSource(), { timeout: 8_000 }).not.toBeNull()
     const src = (await app.playingSource())?.src ?? ''
-    app.answerNextDialog(true)
     await app.sidebar.getByRole('button', { name: 'Clear library' }).click()
+    await app.answerDialog(true)
     await expect.poll(() => app.revokedUrls()).toContain(src)
   })
 

@@ -12,7 +12,10 @@ import { contextQueue, mergeTrackIds, moveItem, nextAfterRemoval, nextRepeat, pi
 import { parseSortSpec } from '../lib/sort'
 import type { SortSpec } from '../lib/sort'
 import { viewTracks } from '../lib/view'
-import { buildBackup, normalizePending, planRestore, resolvePending, serializeBackup } from '../lib/backup'
+import { toast } from '../lib/overlays'
+import { cleanName, copyName, restorePlaylist } from '../lib/playlists'
+import { continueAfter, dequeueAt, keepKnown, moveQueued, queueLast, queueNext, requeueAt, resumeAfterQueued, takeQueued, unqueue } from '../lib/upnext'
+import type { Resume, Taken } from '../lib/upnext'
 import type { Backup, PendingRestore, ResolveResult, RestoreSummary } from '../lib/backup'
 import { PlayTally } from '../lib/plays'
 import { isSmartId, smartList, smartTracks } from '../lib/smart'
@@ -26,7 +29,12 @@ import { mergeReverb, normalizeReverb } from '../lib/reverb'
 import { mergeDynamics, mergeStereo, mergeTone, normalizeDynamics, normalizeStereo, normalizeTone } from '../lib/dynamics'
 import type { DynamicsPatch, DynamicsSettings, EqBand, EqPreset, ImportProgress, Lyrics, PlayFromOptions, PlayerApi, Playlist, RepeatMode, ReverbSettings, Settings, SpatialSettings, StereoSettings, TagEditOutcome, ToneSettings, Track, TransitionMode, UpgradeProgress } from '../types'
 
+// Backups are rare: the code that makes, reads and restores them is only fetched when one is needed.
+const loadBackup = () => import('../lib/backup')
+
 const clamp = (v: number, a: number, b: number): number => Math.min(b, Math.max(a, v))
+const NO_TRACKS: readonly Track[] = []
+const newPlaylistId = (): string => `pl${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
 const XFADE_SECS = 5
 const SLEEP_FADE_SECS = 12
 const SETTINGS_KEY = 'wl-settings'
@@ -48,6 +56,8 @@ interface Snapshot {
   playlists: Playlist[]
   viewId: string
   sort: SortSpec
+  /** The tracks queued by hand (Up Next), by id, in play order. */
+  upNext: readonly string[]
   currentId: string | null
   repeat: RepeatMode
   shuffle: boolean
@@ -112,7 +122,8 @@ export function usePlayer(): PlayerApi {
   const [tone, setToneState] = useState<ToneSettings>(() => normalizeTone(saved.tone))
   const [sleepLeft, setSleepLeft] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
-  const [notice, setNotice] = useState('')
+  /** Ids of the tracks queued by hand (Up Next), in play order: they play before the list on screen carries on. */
+  const [upNext, setUpNextState] = useState<readonly string[]>([])
   const [hydrated, setHydrated] = useState(false)
   /** Progress (0..1) of decoding the current track in JavaScript, or null when it is not being decoded. */
   const [decoding, setDecoding] = useState<number | null>(null)
@@ -121,10 +132,11 @@ export function usePlayer(): PlayerApi {
 
   const active = useRef<DeckIndex>(0) // index of the deck the user is hearing
   const history = useRef<string[]>([])
+  /** Where the list carries on while a track from Up Next plays: after the one it interrupted, not after itself. */
+  const resume = useRef<Resume | null>(null)
   const xfade = useRef<CrossfadeState>({ timer: null, active: false, pending: null })
   const sleep = useRef({ end: 0, fading: false })
   const pendingSeek = useRef<number | null>(null)
-  const noticeTimer = useRef<Timer | undefined>(undefined)
   /** Bumped on every load so a slow decode of an earlier track can tell that it has been superseded. */
   const loadToken = useRef(0)
   /** True while the current track has been chosen but its audio source is not ready yet (WAV/FLAC being checked or decoded). */
@@ -151,6 +163,7 @@ export function usePlayer(): PlayerApi {
     playlists: [],
     viewId: 'all',
     sort,
+    upNext: [],
     currentId: null,
     repeat,
     shuffle,
@@ -177,16 +190,38 @@ export function usePlayer(): PlayerApi {
     return list.length ? list : queue
   }, [context, tracks, queue])
 
-  state.current = { ...state.current, tracks, queue, playQueue, playlists, viewId, sort, currentId: state.current.currentId ?? currentId, repeat, shuffle, transition, normalize, hydrated }
+  state.current = { ...state.current, tracks, queue, playQueue, playlists, viewId, sort, upNext, currentId: state.current.currentId ?? currentId, repeat, shuffle, transition, normalize, hydrated }
   const current = useMemo(() => tracks.find((t) => t.id === currentId) || null, [tracks, currentId])
+  const upNextTracks = useMemo<readonly Track[]>(() => {
+    if (!upNext.length) return NO_TRACKS
+    const byId = new Map(tracks.map((t) => [t.id, t]))
+    return upNext.flatMap((id) => {
+      const t = byId.get(id)
+      return t ? [t] : []
+    })
+  }, [upNext, tracks])
 
   const getEl = useCallback(() => engine.decks[active.current].el, [engine])
 
   const notify = useCallback((msg: string) => {
-    setNotice(msg)
-    clearTimeout(noticeTimer.current)
-    noticeTimer.current = setTimeout(() => setNotice(''), 4500)
+    toast(msg)
   }, [])
+
+  /** Change the queue at once (the next render would be too late for a track that fails to start) and show it. */
+  const commitUpNext = useCallback((next: readonly string[]) => {
+    if (next === state.current.upNext) return
+    state.current.upNext = next
+    setUpNextState(next)
+  }, [])
+
+  /** A queued track starts for real: it leaves the queue, and the list will carry on after the track it interrupted. */
+  const applyTaken = useCallback(
+    (taken: Taken<Track>) => {
+      resume.current = taken.resume
+      commitUpNext(taken.queue)
+    },
+    [commitUpNext],
+  )
 
   const startPlay = useCallback(
     (el: HTMLAudioElement) => {
@@ -284,12 +319,54 @@ export function usePlayer(): PlayerApi {
     [applyNorm, cancelTransition, getEl, notify, resolver, startPlay],
   )
 
-  const pickNext = useCallback((dir: 1 | -1, auto: boolean): Track | null => {
-    const { playQueue: list, currentId, repeat: rep, shuffle: shuf } = state.current
-    const picked = pickTrack({ queue: list, currentId, repeat: rep, shuffle: shuf, history: history.current, dir, auto })
-    history.current = [...picked.history]
-    return picked.track
-  }, [])
+  /**
+   * The track to move to. What was queued by hand (Up Next) plays before the list carries on; `commit` false is looking
+   * ahead (preloading the next track), which must not use the queue up.
+   */
+  const pickNext = useCallback(
+    (dir: 1 | -1, auto: boolean, commit = true): Track | null => {
+      const s = state.current
+      if (dir > 0 && s.upNext.length) {
+        const taken = takeQueued(s.upNext, resume.current, s.currentId, (id) => s.tracks.find((t) => t.id === id))
+        if (taken) {
+          if (commit) applyTaken(taken)
+          return taken.track
+        }
+      }
+      // forward, the list carries on after the track a queued one interrupted; back, a queued track steps back through what was played
+      const queuedPlaying = resume.current !== null && resume.current.forId === s.currentId
+      const picked = pickTrack({
+        queue: s.playQueue,
+        currentId: dir > 0 ? continueAfter(resume.current, s.currentId) : s.currentId,
+        repeat: s.repeat,
+        shuffle: s.shuffle,
+        history: history.current,
+        dir,
+        auto,
+        useHistory: dir < 0 && queuedPlaying,
+        find: (id) => s.tracks.find((t) => t.id === id),
+      })
+      history.current = [...picked.history]
+      if (commit) resume.current = null // the track picked is a list track again
+      return picked.track
+    },
+    [applyTaken],
+  )
+
+  /**
+   * `t`, picked earlier by looking ahead, really starts now. A queued track leaves the queue only here, once it has a source
+   * to play: one that was used up and then could not start yet (a big FLAC still being decoded) would be lost. A track from
+   * the list puts the list back in charge.
+   */
+  const takePick = useCallback(
+    (t: Track) => {
+      const s = state.current
+      const taken = s.upNext.length ? takeQueued(s.upNext, resume.current, s.currentId, (id) => s.tracks.find((x) => x.id === id)) : null
+      if (taken && taken.track.id === t.id) applyTaken(taken)
+      else resume.current = null
+    },
+    [applyTaken],
+  )
 
   /** Start the next track on the idle deck (overlapping for crossfade, immediate for gapless). */
   const beginTransition = useCallback(
@@ -298,7 +375,9 @@ export function usePlayer(): PlayerApi {
       if (x.active) return
       const s = state.current
       const pend = x.pending
-      const nextT = (pend && s.playQueue.find((t) => t.id === pend.id)) || pickNext(1, true)
+      // the pick made while looking ahead still stands when it is the head of Up Next, or (with nothing queued) in the list
+      const stands = !!pend && (s.upNext[0] === pend.id || (s.upNext.length === 0 && s.playQueue.some((t) => t.id === pend.id)))
+      const nextT = stands && pend ? pend : pickNext(1, true, false) // only looking: nothing is used up until the track starts
       if (!nextT) return
       const cur = active.current
       const nxt = otherDeck(cur)
@@ -309,9 +388,11 @@ export function usePlayer(): PlayerApi {
       const nextSrc = resolver.urlFor(nextT)
       if (!nextSrc) {
         // still being checked or decoded: warm it up, and let the normal "track ended" path pick it up if it is late
+        // (it is still queued, if it came from Up Next: only a track that really starts is taken from the queue)
         resolver.resolve(nextT).catch(() => {})
         return
       }
+      takePick(nextT)
       if (inEl.getAttribute('src') !== nextSrc) inEl.src = nextSrc
       applyNorm(nxt, nextT)
       inEl.currentTime = 0
@@ -339,7 +420,7 @@ export function usePlayer(): PlayerApi {
         (secs || 0.05) * 1000 + 150,
       )
     },
-    [engine, pickNext, applyNorm, resolver],
+    [engine, pickNext, takePick, applyNorm, resolver],
   )
 
   const next = useCallback(
@@ -383,6 +464,7 @@ export function usePlayer(): PlayerApi {
       if (!t) return
       // started from the list on screen: playback follows that list again, not an album page it was last started from
       setContext(null)
+      resume.current = null
       state.current.playQueue = state.current.queue
       if (id === state.current.currentId) {
         startPlay(getEl())
@@ -401,6 +483,7 @@ export function usePlayer(): PlayerApi {
       const start = (startId ? list.find((t) => t.id === startId) : undefined) ?? (shuffled ? list[Math.floor(Math.random() * list.length)] : list[0])
       if (!start) return
       if (shuffled) setShuffle(true)
+      resume.current = null
       setContext(list.map((t) => t.id))
       state.current.playQueue = list // usable at once: the next render would be too late for a track that fails to start
       if (start.id === state.current.currentId) {
@@ -417,14 +500,16 @@ export function usePlayer(): PlayerApi {
 
   const toggle = useCallback(() => {
     if (!state.current.currentId) {
-      const first = state.current.playQueue[0]
+      // with nothing playing, what was queued by hand goes first, as it would after a track
+      const first = (state.current.upNext.length ? pickNext(1, false) : null) ?? state.current.playQueue[0]
+      resume.current = null // nothing was playing, so there is nothing to carry on after
       if (first) load(first)
       return
     }
     const el = getEl()
     if (el.paused) startPlay(el)
     else el.pause()
-  }, [getEl, load, startPlay])
+  }, [getEl, load, pickNext, startPlay])
 
   const seek = useCallback(
     (t: number) => {
@@ -473,29 +558,30 @@ export function usePlayer(): PlayerApi {
     setPendingRestore(r.pending)
   }, [notify])
 
-  /** Complete whatever part of a restored backup the library can satisfy now. Cheap when nothing is pending. */
-  const resolveNow = useCallback(() => {
-    const pending = pendingRef.current
+  /** Complete whatever part of a restored backup the library can satisfy now. Free when nothing is pending: the backup code is not even fetched. */
+  const resolveNow = useCallback(async (): Promise<void> => {
+    if (!pendingRef.current) return
+    const { resolvePending } = await loadBackup()
+    const pending = pendingRef.current // read again: it may have been resolved, or given up on, while the code was loading
     if (!pending) return
     const r = resolvePending(pending, state.current.tracks, state.current.playlists, trackEqRef.current)
     const progressed = r.patches.size > 0 || r.membersAdded > 0 || r.pending?.tracks.length !== pending.tracks.length || r.pending?.links.length !== pending.links.length
     if (progressed) commitRestore(r)
   }, [commitRestore])
 
-  const exportBackup = useCallback(
-    () => serializeBackup(buildBackup(state.current.tracks, state.current.playlists, trackEqRef.current, new Date())),
-    [],
-  )
+  const exportBackup = useCallback(async (): Promise<string> => {
+    const { buildBackup, serializeBackup } = await loadBackup()
+    return serializeBackup(buildBackup(state.current.tracks, state.current.playlists, trackEqRef.current, new Date()))
+  }, [])
 
-  const planBackup = useCallback(
-    (backup: Backup) =>
-      planRestore(backup, state.current.tracks, state.current.playlists, trackEqRef.current, pendingRef.current, () => `pl${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`),
-    [],
-  )
-  const previewBackup = useCallback((backup: Backup): RestoreSummary => planBackup(backup).summary, [planBackup])
+  const planBackup = useCallback(async (backup: Backup) => {
+    const { planRestore } = await loadBackup()
+    return planRestore(backup, state.current.tracks, state.current.playlists, trackEqRef.current, pendingRef.current, () => `pl${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`)
+  }, [])
+  const previewBackup = useCallback(async (backup: Backup): Promise<RestoreSummary> => (await planBackup(backup)).summary, [planBackup])
   const applyBackup = useCallback(
-    (backup: Backup): RestoreSummary => {
-      const plan = planBackup(backup)
+    async (backup: Backup): Promise<RestoreSummary> => {
+      const plan = await planBackup(backup)
       commitRestore(plan)
       return plan.summary
     },
@@ -626,7 +712,7 @@ export function usePlayer(): PlayerApi {
           })
           const head = added[0]
           if (wasEmpty && head && !state.current.currentId) load(head, false)
-          resolveNow() // files that a restored backup was waiting for may have just arrived
+          resolveNow().catch(() => {}) // files that a restored backup was waiting for may have just arrived
         },
       })
       if (epoch !== libraryEpoch.current) return 0
@@ -704,17 +790,19 @@ export function usePlayer(): PlayerApi {
       setTracks((l) => l.filter((x) => x.id !== id))
       setPlaylists((l) => l.map((p) => ({ ...p, trackIds: p.trackIds.filter((x) => x !== id) })))
       history.current = history.current.filter((x) => x !== id)
+      commitUpNext(s.upNext.filter((x) => x !== id))
       setTrackEq((m) => (m[id] ? Object.fromEntries(Object.entries(m).filter(([key]) => key !== id)) : m))
       resolver.release(id)
       revokeTrack(t)
       db.deleteTrack(id).catch(() => {})
     },
-    [cancelTransition, getEl, load, resolver],
+    [cancelTransition, commitUpNext, getEl, load, resolver],
   )
 
   const clear = useCallback(() => {
     // whatever is still being imported or analysed belongs to the library that is about to go
     libraryEpoch.current++
+    resume.current = null
     importAborts.current.forEach((controller) => controller.abort())
     upgradeAbort.current?.abort()
     cancelTransition()
@@ -728,6 +816,7 @@ export function usePlayer(): PlayerApi {
     history.current = []
     state.current.currentId = null
     setContext(null)
+    commitUpNext([])
     setTracks([])
     setPlaylists((l) => l.map((p) => ({ ...p, trackIds: [] })))
     setCurrentId(null)
@@ -736,7 +825,7 @@ export function usePlayer(): PlayerApi {
     setTrackEq({})
     db.clearTracks().catch(() => {})
     db.setMeta('resume', null).catch(() => {})
-  }, [cancelTransition, engine, resolver])
+  }, [cancelTransition, commitUpNext, engine, resolver])
 
   const reorder = useCallback((from: number, to: number) => {
     // positions are in the list as shown: in any sort but the stored order they are not positions in what is stored
@@ -748,9 +837,22 @@ export function usePlayer(): PlayerApi {
 
   // ---- playlists ----
   const createPlaylist = useCallback((name?: string, trackIds: string[] = []) => {
-    const id = `pl${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
-    setPlaylists((l) => [...l, { id, name: (name || '').trim() || 'New playlist', trackIds }])
+    const id = newPlaylistId()
+    setPlaylists((l) => [...l, { id, name: cleanName(name ?? ''), trackIds: [...new Set(trackIds)] }])
     return id
+  }, [])
+  const renamePlaylist = useCallback((id: string, name: string) => {
+    setPlaylists((l) => l.map((p) => (p.id === id ? { ...p, name: cleanName(name, p.name) } : p)))
+  }, [])
+  const duplicatePlaylist = useCallback((id: string): string | null => {
+    const source = state.current.playlists.find((p) => p.id === id)
+    if (!source) return null
+    const copy: Playlist = { id: newPlaylistId(), name: copyName(state.current.playlists.map((p) => p.name), source.name), trackIds: [...source.trackIds] }
+    setPlaylists((l) => {
+      const at = l.findIndex((p) => p.id === id)
+      return at < 0 ? [...l, copy] : [...l.slice(0, at + 1), copy, ...l.slice(at + 1)]
+    })
+    return copy.id
   }, [])
   const addToPlaylist = useCallback((plId: string, trackId: string) => {
     setPlaylists((l) => l.map((p) => (p.id === plId && !p.trackIds.includes(trackId) ? { ...p, trackIds: [...p.trackIds, trackId] } : p)))
@@ -762,10 +864,72 @@ export function usePlayer(): PlayerApi {
     if (added) setPlaylists((l) => l.map((p) => (p.id === plId ? { ...p, trackIds: [...mergeTrackIds(p.trackIds, trackIds).ids] } : p)))
     return added
   }, [])
-  const deletePlaylist = useCallback((id: string) => {
+  const deletePlaylist = useCallback((id: string): (() => void) | null => {
+    const list = state.current.playlists
+    const index = list.findIndex((p) => p.id === id)
+    const playlist = list[index]
+    if (!playlist) return null
+    const wasOpen = state.current.viewId === id
     setPlaylists((l) => l.filter((p) => p.id !== id))
     setViewId((v) => (v === id ? 'all' : v))
+    // the undo puts it back where it was, with the tracks the library still has by then
+    return () => {
+      const have = new Set(state.current.tracks.map((t) => t.id))
+      setPlaylists((l) => [...restorePlaylist(l, { playlist, index }, (trackId) => have.has(trackId))])
+      // and opens it again if it was open, unless the listener has gone to another list since
+      if (wasOpen) setViewId((v) => (v === 'all' ? id : v))
+    }
   }, [])
+
+  // ---- up next ----
+  const knownIds = useCallback((ids: readonly string[]): string[] => {
+    const have = new Set(state.current.tracks.map((t) => t.id))
+    return keepKnown(ids, (id) => have.has(id))
+  }, [])
+  const playNext = useCallback(
+    (ids: readonly string[]): (() => void) => {
+      const added = knownIds(ids)
+      commitUpNext(queueNext(state.current.upNext, added))
+      return () => commitUpNext(unqueue(state.current.upNext, added, 'front'))
+    },
+    [commitUpNext, knownIds],
+  )
+  const addToQueue = useCallback(
+    (ids: readonly string[]): (() => void) => {
+      const added = knownIds(ids)
+      commitUpNext(queueLast(state.current.upNext, added))
+      return () => commitUpNext(unqueue(state.current.upNext, added, 'back'))
+    },
+    [commitUpNext, knownIds],
+  )
+  const removeFromUpNext = useCallback(
+    (index: number): (() => void) => {
+      const id = state.current.upNext[index]
+      commitUpNext(dequeueAt(state.current.upNext, index))
+      return () => {
+        if (id !== undefined && knownIds([id]).length) commitUpNext(requeueAt(state.current.upNext, index, id))
+      }
+    },
+    [commitUpNext, knownIds],
+  )
+  const moveInUpNext = useCallback((from: number, to: number) => commitUpNext(moveQueued(state.current.upNext, from, to)), [commitUpNext])
+  const clearUpNext = useCallback((): (() => void) => {
+    const before = state.current.upNext
+    commitUpNext([])
+    return () => commitUpNext(knownIds([...before, ...state.current.upNext]))
+  }, [commitUpNext, knownIds])
+  const playUpNext = useCallback(
+    (index: number) => {
+      const id = state.current.upNext[index]
+      const t = id ? state.current.tracks.find((x) => x.id === id) : undefined
+      if (!t) return
+      commitUpNext(dequeueAt(state.current.upNext, index))
+      resume.current = resumeAfterQueued(resume.current, state.current.currentId, t.id)
+      if (state.current.currentId) history.current.push(state.current.currentId)
+      load(t)
+    },
+    [commitUpNext, load],
+  )
 
   // ---- sort ----
   const setSort = useCallback((spec: SortSpec) => {
@@ -906,7 +1070,7 @@ export function usePlayer(): PlayerApi {
     let alive = true
     ;(async () => {
       try {
-        const [rows, order, pls, resume, storedTrackEq, storedPending] = await Promise.all([db.getAllTracks(), db.getMeta('order'), db.getMeta('playlists'), db.getMeta('resume'), db.getMeta('trackEq'), db.getMeta('pendingRestore')])
+        const [rows, order, pls, resume, storedTrackEq, storedPending, storedUpNext] = await Promise.all([db.getAllTracks(), db.getMeta('order'), db.getMeta('playlists'), db.getMeta('resume'), db.getMeta('trackEq'), db.getMeta('pendingRestore'), db.getMeta('upNext')])
         if (!alive) return
         const ids = Array.isArray(order) ? order : []
         const byId = new Map(rows.map((r) => [r.id, r]))
@@ -933,7 +1097,10 @@ export function usePlayer(): PlayerApi {
         const remembered = normalizeTrackEq(storedTrackEq)
         const known = new Set(rows.map((r) => r.id))
         setTrackEq(Object.fromEntries(Object.entries(remembered).filter(([id]) => known.has(id))))
-        const waiting = normalizePending(storedPending)
+        // what was queued by hand before the restart is still queued (whatever was imported meanwhile is added after it)
+        const queued = keepKnown(storedUpNext, (id) => known.has(id))
+        commitUpNext(keepKnown([...queued, ...state.current.upNext], () => true))
+        const waiting = storedPending ? (await loadBackup()).normalizePending(storedPending) : null
         pendingRef.current = waiting
         setPendingRestore(waiting)
       } catch {
@@ -945,7 +1112,7 @@ export function usePlayer(): PlayerApi {
     return () => {
       alive = false
     }
-  }, [load])
+  }, [load, commitUpNext])
 
   // A library stored before durations, track numbers, genres and formats were read is brought up to date quietly in the
   // background, from the audio copies it already holds. The progress lives in the records (`indexed`), so a restart
@@ -1002,9 +1169,12 @@ export function usePlayer(): PlayerApi {
   useEffect(() => {
     if (hydrated) db.setMeta('pendingRestore', pendingRestore).catch(() => {})
   }, [hydrated, pendingRestore])
+  useEffect(() => {
+    if (hydrated) db.setMeta('upNext', [...upNext]).catch(() => {})
+  }, [hydrated, upNext])
   // a restore that was left waiting last session may be satisfiable now (files were added while it was not loaded)
   useEffect(() => {
-    if (hydrated) resolveNow()
+    if (hydrated) resolveNow().catch(() => {})
   }, [hydrated, resolveNow])
   useEffect(() => {
     if (viewId !== 'all' && !isSmartId(viewId) && !playlists.some((p) => p.id === viewId)) setViewId('all')
@@ -1034,7 +1204,7 @@ export function usePlayer(): PlayerApi {
   // a changed queue invalidates any preloaded "next" pick
   useEffect(() => {
     if (!xfade.current.active) xfade.current.pending = null
-  }, [playQueue, shuffle, repeat])
+  }, [playQueue, upNext, shuffle, repeat])
 
   // ---- audio element events (both decks; only the active one drives the UI) ----
   useEffect(() => {
@@ -1051,7 +1221,7 @@ export function usePlayer(): PlayerApi {
       if (x.active) return
       const remaining = el.duration - el.currentTime
       if (remaining <= 15 && !x.pending) {
-        const n = pickNext(1, true)
+        const n = pickNext(1, true, false) // looking ahead: the queue is not used up until the track really starts
         if (n) {
           x.pending = n
           const idle = otherDeck(active.current)
@@ -1305,10 +1475,11 @@ export function usePlayer(): PlayerApi {
   return {
     engine, tracks, queue, playQueue, playlists, viewId, setViewId, sort, setSort, current, currentId, playing, time, duration, volume, muted,
     repeat, shuffle, transition, setTransition, speed, setSpeed: (v) => setSpeedState(clamp(Math.round(v * 20) / 20, 0.5, 2)), preservePitch, setPreservePitch, normalize, setNormalize, eq, eqOn, setEqOn, setEqBand, applyPreset, eqBands, updateEqBand, addEqBand, removeEqBand, resetEq, eqRemembered, setEqRemembered, eqPresets, saveEqPreset, loadEqPreset, deleteEqPreset, spatial, setSpatial, reverb, setReverb, dynamics, setDynamics, stereo, setStereo, tone, setTone, sleepLeft, setSleep,
-    loading, importProgress, cancelImport, upgradeProgress, notice, hydrated, decoding,
+    upNext: upNextTracks, playNext, addToQueue, removeFromUpNext, moveInUpNext, clearUpNext, playUpNext,
+    loading, importProgress, cancelImport, upgradeProgress, hydrated, decoding,
     play, playFrom, toggle, next: () => next(false), prev, seek, position: () => getEl().currentTime, seekBy, setVolume, volumeBy, toggleMute,
     cycleRepeat, toggleShuffle, addFiles, attachLrc, editTags, remove, clear, reorder,
-    createPlaylist, addToPlaylist, addTracksToPlaylist, deletePlaylist, resetPlays,
+    createPlaylist, addToPlaylist, addTracksToPlaylist, renamePlaylist, duplicatePlaylist, deletePlaylist, resetPlays,
     exportBackup, previewBackup, applyBackup, pendingRestoreCount: pendingRestore?.tracks.length ?? 0, discardPendingRestore,
   }
 }

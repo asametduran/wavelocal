@@ -1,4 +1,3 @@
-import { isMp3, rewriteId3 } from './id3write'
 import type { TagChanges } from './id3write'
 import type { TrackRecord } from '../types'
 
@@ -97,6 +96,8 @@ export async function applyTagEdit(record: TrackRecord, edit: TagEdit): Promise<
   let file = record.file
   let embedded = false
   const bytes = new Uint8Array(await record.file.arrayBuffer())
+  // the tag writer is only needed by someone editing tags: its code is fetched then, not at startup
+  const { isMp3, rewriteId3 } = await import('./id3write')
   if (isMp3(bytes)) {
     // a blank field removes the frame from the file instead of writing the display fallback into it
     const changes: TagChanges = {

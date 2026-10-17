@@ -8,6 +8,8 @@ const LRC_EXT = /\.lrc$/i
 
 export const isAudioFile = (f: File): boolean => f.type.startsWith('audio/') || AUDIO_EXT.test(f.name)
 export const isLrcFile = (f: File): boolean => LRC_EXT.test(f.name)
+/** A playlist file (M3U, M3U8, PLS) by its name: read into a playlist instead of being added as music. */
+export const isPlaylistFile = (name: string): boolean => /\.(m3u8?|pls)$/i.test(name)
 
 export const stripExt = (n: string): string => n.replace(/\.[^.]+$/, '')
 /** Normalised name used to pair "Song.mp3" with "song.lrc". */

@@ -201,8 +201,8 @@ test.describe('sorting tracks', () => {
   })
 
   test('a playlist is sorted too, and calls its own order the playlist order', async () => {
-    b.app.answerNextDialog(true, 'Mix')
     await b.app.viewSelect.selectOption('__new')
+    await b.app.answerDialog(true, 'Mix')
     await b.app.viewSelect.selectOption('all')
     for (const title of ['Yesterday', 'Birthday', 'Sunny']) {
       await b.app.row(title).hover()
@@ -351,9 +351,9 @@ test.describe('albums', () => {
 
   test('adds a whole album to a playlist, and only the tracks it does not have yet', async () => {
     await b.albumCard('Help').click()
-    b.app.answerNextDialog(true, 'Beatles mix')
     await b.app.sidebar.getByRole('button', { name: 'Add to playlist: Help' }).click()
     await b.app.sidebar.getByRole('menuitem', { name: /New playlist/ }).click()
+    await b.app.answerDialog(true, 'Beatles mix')
     await expect(b.app.viewSelect.locator('option', { hasText: 'Beatles mix' })).toHaveText('Beatles mix (2)')
     await expect(b.announcer()).toHaveText('Created playlist Beatles mix with 2 tracks')
 
@@ -394,8 +394,8 @@ test.describe('albums', () => {
   })
 
   test('opens the albums of a playlist rather than of the whole library', async () => {
-    b.app.answerNextDialog(true, 'Pair')
     await b.app.viewSelect.selectOption('__new')
+    await b.app.answerDialog(true, 'Pair')
     await b.app.viewSelect.selectOption('all')
     await b.app.showMode('Tracks')
     for (const title of ['Yesterday', 'Sunny']) {

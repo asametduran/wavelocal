@@ -22,6 +22,7 @@ import {
   isGraphicLayout,
   posToFreq,
 } from '../lib/eq'
+import { promptDialog } from '../lib/overlays'
 import type { CSSProperties } from 'react'
 import type { PlayerApi } from '../types'
 
@@ -72,8 +73,8 @@ export default function EqSection({ p }: { p: PlayerApi }) {
   const activePreset = graphic ? Object.keys(EQ_PRESETS).find((k) => same(EQ_PRESETS[k] ?? [], p.eq)) : undefined
   const activeCustom = p.eqPresets.find((preset) => bandsEqual(preset.bands, bands))?.name
 
-  const onSave = () => {
-    const name = window.prompt('Name this equalizer preset')
+  const onSave = async () => {
+    const name = await promptDialog({ title: 'Save equalizer preset', label: 'Preset name', placeholder: 'My curve', confirmLabel: 'Save' })
     if (name && name.trim()) p.saveEqPreset(name)
   }
 

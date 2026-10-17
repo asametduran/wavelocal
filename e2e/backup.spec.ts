@@ -67,8 +67,8 @@ test.describe('backup and restore', () => {
   test('exports tags, counts and playlists as a small JSON file with no audio in it', async () => {
     await importWithMtime(app, [files.a, files.b], MTIME)
     await expect(app.rows).toHaveCount(2)
-    app.answerNextDialog(true, 'Faves')
     await app.viewSelect.selectOption('__new')
+    await app.answerDialog(true, 'Faves')
     await app.viewSelect.selectOption('all')
     await app.row('b').hover()
     await app.row('b').getByRole('button', { name: 'Add b to playlist' }).click()
@@ -171,8 +171,8 @@ test.describe('backup and restore', () => {
 
   test('does not touch anything the backup does not mention', async () => {
     await importWithMtime(app, [files.a, files.b], MTIME)
-    app.answerNextDialog(true, 'Mine')
     await app.viewSelect.selectOption('__new')
+    await app.answerDialog(true, 'Mine')
     await restore(backup([entry(files.a)]))
     await app.closeTools()
     await expect(app.viewSelect.locator('option[value="all"]')).toHaveText('Library (2)')
@@ -209,8 +209,8 @@ test.describe('backup and restore', () => {
 
   test('a backup made on one device restores onto another that has the same files', async ({ browser, baseURL }) => {
     await importWithMtime(app, [files.a, files.b], MTIME)
-    app.answerNextDialog(true, 'Faves')
     await app.viewSelect.selectOption('__new')
+    await app.answerDialog(true, 'Faves')
     await app.viewSelect.selectOption('all')
     await app.row('a').hover()
     await app.row('a').getByRole('button', { name: 'Add a to playlist' }).click()

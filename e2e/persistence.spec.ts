@@ -27,8 +27,8 @@ test.describe('persistence across reloads', () => {
 
   test('playlists survive a reload', async () => {
     await app.importFiles(wav('tone-440', 'a.wav'), wav('tone-880', 'b.wav'))
-    app.answerNextDialog(true, 'Keepers')
     await app.viewSelect.selectOption('__new')
+    await app.answerDialog(true, 'Keepers')
     await app.viewSelect.selectOption('all')
     await app.row('b').hover()
     await app.row('b').getByRole('button', { name: 'Add b to playlist' }).click()
@@ -74,8 +74,8 @@ test.describe('persistence across reloads', () => {
 
   test('clearing the library persists', async () => {
     await app.importFiles(wav('tone-440', 'a.wav'))
-    app.answerNextDialog(true)
     await app.sidebar.getByRole('button', { name: 'Clear library' }).click()
+    await app.answerDialog(true)
     await expect(app.rows).toHaveCount(0)
     await app.page.waitForTimeout(400)
 

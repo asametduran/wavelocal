@@ -67,6 +67,39 @@ describe('pickTrack: sequential', () => {
     expect(pick({ currentId: null, dir: -1 }).track?.id).toBe('c')
   })
 
+  it('goes back through what was played when the current track is not in the queue (it came from Up Next)', () => {
+    const result = pick({ currentId: 'queued', dir: -1, history: ['x', 'c'] })
+    expect(result.track?.id).toBe('c')
+    expect(result.history).toEqual(['x'])
+  })
+
+  it('can go back to a track that is not in the queue either, when it can look one up in the library', () => {
+    const outside = track('outside')
+    const find = (id: string) => (id === 'outside' ? outside : undefined)
+    const result = pick({ currentId: 'queued', dir: -1, history: ['outside'], find })
+    expect(result.track).toBe(outside)
+    expect(result.history).toEqual([])
+  })
+
+  it('keeps stepping through the queue when the current track is in it, whatever the history says', () => {
+    expect(pick({ currentId: 'b', dir: -1, history: ['c'] }).track?.id).toBe('a')
+  })
+
+  it('goes back through what was played, though the current track is in the queue, when told it came from Up Next', () => {
+    // c was queued by hand while a played: Previous returns to a, not to b, the track before c in the list
+    const result = pick({ currentId: 'c', dir: -1, history: ['a'], useHistory: true })
+    expect(result.track?.id).toBe('a')
+    expect(result.history).toEqual([])
+  })
+
+  it('steps through the queue when told it came from Up Next but nothing was played before', () => {
+    expect(pick({ currentId: 'c', dir: -1, history: [], useHistory: true }).track?.id).toBe('b')
+  })
+
+  it('does not let that change which track comes next', () => {
+    expect(pick({ currentId: 'a', dir: 1, history: ['c'], useHistory: true }).track?.id).toBe('b')
+  })
+
   it('does not touch history when not shuffling', () => {
     const history = ['x', 'y']
     expect(pick({ currentId: 'b', dir: -1, history }).history).toBe(history)

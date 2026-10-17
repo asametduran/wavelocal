@@ -16,6 +16,10 @@ export interface PickInput {
   auto: boolean
   /** Random source in [0, 1); injectable for deterministic tests. */
   random?: () => number
+  /** The current track came from Up Next: going back follows what was played even though a list order exists. */
+  useHistory?: boolean
+  /** Finds any track of the library by id, for going back to one that is not in `queue` (it was played from Up Next). */
+  find?: (id: string) => Track | undefined
 }
 
 export interface PickResult {
@@ -25,14 +29,16 @@ export interface PickResult {
 }
 
 /** Choose the next or previous track. Never mutates its inputs. */
-export function pickTrack({ queue, currentId, repeat, shuffle, history, dir, auto, random = Math.random }: PickInput): PickResult {
+export function pickTrack({ queue, currentId, repeat, shuffle, history, dir, auto, random = Math.random, find, useHistory = false }: PickInput): PickResult {
   if (!queue.length) return { track: null, history }
   const idx = queue.findIndex((t) => t.id === currentId)
 
   if (dir < 0) {
-    if (history.length && shuffle) {
-      const prevId = history[history.length - 1]
-      return { track: queue.find((t) => t.id === prevId) ?? queue[0] ?? null, history: history.slice(0, -1) }
+    // shuffling has no order to step back through, and neither has a track that is not in the queue (one that came from
+    // Up Next): both go back through what was actually played
+    if (history.length && (shuffle || idx < 0 || useHistory)) {
+      const prevId = history[history.length - 1] ?? ''
+      return { track: queue.find((t) => t.id === prevId) ?? find?.(prevId) ?? queue[0] ?? null, history: history.slice(0, -1) }
     }
     // a current track that is not in this view (another album was opened while it plays): previous starts from the end
     return { track: queue[idx < 0 ? queue.length - 1 : (idx - 1 + queue.length) % queue.length] ?? null, history }

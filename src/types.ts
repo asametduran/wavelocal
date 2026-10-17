@@ -318,6 +318,19 @@ export interface PlayerApi {
   setStereo: (patch: Partial<StereoSettings>) => void
   tone: ToneSettings
   setTone: (patch: Partial<ToneSettings>) => void
+  /** The tracks queued by hand, in the order they will play: they play before the list on screen carries on. */
+  upNext: readonly Track[]
+  /** Queue tracks to play right after the current one (the latest "play next" plays first). Returns the undo. */
+  playNext: (ids: readonly string[]) => () => void
+  /** Queue tracks after everything already queued. Returns the undo. */
+  addToQueue: (ids: readonly string[]) => () => void
+  /** Take the queued track at `index` out of the queue. Returns the undo. */
+  removeFromUpNext: (index: number) => () => void
+  moveInUpNext: (from: number, to: number) => void
+  /** Empty the queue. Returns the undo. */
+  clearUpNext: () => () => void
+  /** Play the queued track at `index` now, taking it out of the queue. */
+  playUpNext: (index: number) => void
   /** Seconds left on the sleep timer, or null when it is off. */
   sleepLeft: number | null
   /** Start the sleep timer for `minutes`; 0 or null cancels it. */
@@ -330,7 +343,6 @@ export interface PlayerApi {
   cancelImport: () => void
   /** Background analysis of tracks stored before their details (durations, track numbers, format) were read; null when idle. */
   upgradeProgress: UpgradeProgress | null
-  notice: string
   hydrated: boolean
   /** Progress (0..1) while the current WAV/FLAC file is being decoded in JavaScript, otherwise null. */
   decoding: number | null
@@ -368,15 +380,19 @@ export interface PlayerApi {
   addToPlaylist: (playlistId: string, trackId: string) => void
   /** Add tracks to a playlist, skipping the ones it already has; resolves with how many were new. */
   addTracksToPlaylist: (playlistId: string, trackIds: readonly string[]) => number
-  deletePlaylist: (id: string) => void
+  renamePlaylist: (id: string, name: string) => void
+  /** Copy a playlist (right after the original, named "… copy"); returns the new id, or null when there is no such playlist. */
+  duplicatePlaylist: (id: string) => string | null
+  /** Delete a playlist. Returns the undo that puts it back where it was, or null when there is no such playlist. */
+  deletePlaylist: (id: string) => (() => void) | null
   /** Forget every play count and last-played time (the "most played" lists start over). */
   resetPlays: () => void
   /** The library's metadata, playlists and play counts (no audio) as the text of a JSON backup file. */
-  exportBackup: () => string
+  exportBackup: () => Promise<string>
   /** What restoring `backup` would do, without doing it. */
-  previewBackup: (backup: Backup) => RestoreSummary
+  previewBackup: (backup: Backup) => Promise<RestoreSummary>
   /** Merge `backup` into the library. Whatever refers to files not in the library yet completes when they are added. */
-  applyBackup: (backup: Backup) => RestoreSummary
+  applyBackup: (backup: Backup) => Promise<RestoreSummary>
   /** How many tracks from a restored backup are still waiting for their files. */
   pendingRestoreCount: number
   /** Give up on the tracks a restore is still waiting for. */
@@ -392,4 +408,6 @@ export interface MetaValues {
   trackEq: Record<string, EqBand[]>
   /** The part of a restored backup still waiting for its files. */
   pendingRestore: PendingRestore | null
+  /** Up Next: the ids of the tracks queued by hand, in play order (see `lib/upnext.ts`). */
+  upNext: string[]
 }

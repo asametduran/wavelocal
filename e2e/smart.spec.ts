@@ -90,7 +90,7 @@ test.describe('smart playlists', () => {
     const row = app.rows.first()
     await expect(row).toHaveAttribute('draggable', 'false')
     await expect(row.getByRole('button', { name: /^Remove / })).toHaveCount(0)
-    await expect(row.getByRole('button', { name: /^Add .* to playlist$/ })).toBeAttached()
+    await expect(row.getByRole('button', { name: /^Add .* to playlist or queue$/ })).toBeAttached()
     await expect(app.sidebar.getByRole('list', { name: 'Recently added smart playlist' })).toBeVisible()
   })
 
@@ -121,8 +121,8 @@ test.describe('smart playlists', () => {
     await app.play('a')
     await expect(option(/^Most played \(1\)/)).toHaveCount(1, { timeout: 10_000 })
     await open('smart:top')
-    app.page.once('dialog', (d) => void d.accept())
     await app.sidebar.getByRole('button', { name: 'Clear play counts' }).click()
+    await app.answerDialog(true)
     await expect(option(/^Most played \(0\)/)).toHaveCount(1)
     await expect(option(/^Never played \(2\)/)).toHaveCount(1)
     await expect(app.viewSelect.locator('option[value="all"]')).toHaveText('Library (2)')

@@ -1,5 +1,5 @@
 import { expect } from '@playwright/test'
-import type { Dialog, Locator, Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { buildFixture, buildFlac, lrcText } from '../src/test-utils/fixtures'
 import { buildMp3 } from '../src/test-utils/containers'
 import { buildId3v2, withId3 } from '../src/test-utils/id3'
@@ -13,6 +13,15 @@ export interface Upload {
   name: string
   mimeType: string
   buffer: Buffer
+}
+
+/** A track as the app has saved it in its own database. */
+export interface StoredTrack {
+  id: string
+  name: string
+  title: string
+  /** True when lyrics were saved with the track. */
+  lyrics: boolean
 }
 
 /** A synthetic WAV fixture as an uploadable file. */
@@ -272,6 +281,27 @@ export async function failNativeFlacPlayback(page: Page): Promise<void> {
   })
 }
 
+/**
+ * Make the decoder worker slow: every conversion after the first `skip` starts `ms` late, so a track that was lined up to
+ * play next is not ready when its turn comes (a big FLAC on a slow phone). Install before `open()`.
+ */
+export async function slowDecoding(page: Page, ms: number, skip = 1): Promise<void> {
+  await page.addInitScript(
+    ({ ms, skip }) => {
+      const post = Worker.prototype.postMessage as (this: Worker, message: unknown, ...rest: unknown[]) => void
+      let conversions = 0
+      Worker.prototype.postMessage = function (this: Worker, message: unknown, ...rest: unknown[]) {
+        if ((message as { type?: string } | null)?.type === 'convert' && ++conversions > skip) {
+          setTimeout(() => post.call(this, message, ...rest), ms)
+          return
+        }
+        post.call(this, message, ...rest)
+      } as typeof Worker.prototype.postMessage
+    },
+    { ms, skip },
+  )
+}
+
 /** Make decodeAudioData reject FLAC data (as a browser without FLAC support would). Install before `open()`. */
 export async function rejectFlacDecoding(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -316,6 +346,54 @@ export class PlayerPage {
 
   async importFiles(...files: Upload[]): Promise<void> {
     await this.page.locator('input[type=file]').first().setInputFiles(files)
+  }
+
+  /**
+   * The tracks the app has saved in its own database, read straight from IndexedDB. Saving comes a moment after the
+   * screen changes, so wait on this (with `expect.poll`) before a reload instead of sleeping for a guessed time.
+   */
+  async storedTracks(): Promise<StoredTrack[]> {
+    return this.page.evaluate(
+      () =>
+        new Promise<StoredTrack[]>((resolve, reject) => {
+          const open = indexedDB.open('wavelocal', 1)
+          open.onsuccess = () => {
+            const db = open.result
+            const req = db.transaction('tracks', 'readonly').objectStore('tracks').getAll()
+            req.onsuccess = () => {
+              resolve(
+                (req.result as { id: string; title: string; file: { name: string }; lyrics?: unknown }[])
+                  .map((r) => ({ id: r.id, name: r.file.name, title: r.title, lyrics: !!r.lyrics }))
+                  .sort((a, b) => a.name.localeCompare(b.name)),
+              )
+              db.close()
+            }
+            req.onerror = () => reject(req.error)
+          }
+          open.onerror = () => reject(open.error)
+        }),
+    )
+  }
+
+  /** One value of the app's `meta` store (order, playlists, the Up Next queue...) as saved, or undefined. */
+  async storedMeta(key: string): Promise<unknown> {
+    return this.page.evaluate(
+      (key) =>
+        new Promise<unknown>((resolve, reject) => {
+          const open = indexedDB.open('wavelocal', 1)
+          open.onsuccess = () => {
+            const db = open.result
+            const req = db.transaction('meta', 'readonly').objectStore('meta').get(key)
+            req.onsuccess = () => {
+              resolve(req.result)
+              db.close()
+            }
+            req.onerror = () => reject(req.error)
+          }
+          open.onerror = () => reject(open.error)
+        }),
+      key,
+    )
   }
 
   /** The main library sidebar (the phone queue sheet renders a second, hidden one later in the DOM). */
@@ -378,6 +456,42 @@ export class PlayerPage {
   async play(title: string): Promise<void> {
     await this.row(title).locator('button[aria-current]').click()
     await this.expectPlaying()
+  }
+
+  async next(): Promise<void> {
+    await this.footer.getByRole('button', { name: 'Next (N)' }).click()
+  }
+
+  async previous(): Promise<void> {
+    await this.footer.getByRole('button', { name: 'Previous (P)' }).click()
+  }
+
+  // ---- up next ----
+
+  /** Queue a track from the menu of its row. */
+  async queueTrack(title: string, action: 'Play next' | 'Add to queue'): Promise<void> {
+    await this.row(title).hover()
+    await this.row(title).getByRole('button', { name: `Add ${title} to playlist or queue` }).click()
+    await this.page.getByRole('menuitem', { name: action, exact: true }).click()
+  }
+
+  /** The stage tab that lists what was queued by hand (its name carries the count). */
+  get upNextTab(): Locator {
+    return this.stage.getByRole('tab', { name: /^Up Next/ })
+  }
+
+  get upNextList(): Locator {
+    return this.stage.getByRole('list', { name: 'Up Next' })
+  }
+
+  async showUpNext(): Promise<void> {
+    await this.upNextTab.click()
+    await expect(this.upNextTab).toHaveAttribute('aria-selected', 'true')
+  }
+
+  /** The titles in the Up Next list, in order. */
+  async upNextTitles(): Promise<string[]> {
+    return this.upNextList.locator('li div.truncate.text-sm').allTextContents()
   }
 
   get nowPlayingTitle(): Locator {
@@ -615,9 +729,31 @@ export class PlayerPage {
 
   // ---- dialogs ----
 
-  /** Answer the next window.prompt / confirm. */
-  answerNextDialog(accept: boolean, text?: string): void {
-    this.page.once('dialog', (d: Dialog) => void (accept ? d.accept(text) : d.dismiss()))
+  /** The question the page is asking in its own dialog (a name to type, or a yes/no), when one is up. */
+  get question(): Locator {
+    return this.page.getByTestId('dialog')
+  }
+
+  /**
+   * Answer the question the page is asking: type `text` if it wants a name, then confirm (`accept`) or cancel. Call it
+   * after the click that opens the question; it waits for the question to appear, and for it to be gone.
+   */
+  async answerDialog(accept: boolean, text?: string): Promise<void> {
+    await expect(this.question).toBeVisible()
+    if (accept && text !== undefined) await this.question.getByRole('textbox').fill(text)
+    await this.question.getByTestId(accept ? 'dialog-confirm' : 'dialog-cancel').click()
+    await expect(this.question).toBeHidden()
+  }
+
+  /** A message the page shows for a few seconds (and its Undo, when it has one). */
+  toast(text: string | RegExp): Locator {
+    return this.page.getByRole('status').filter({ hasText: text })
+  }
+
+  /** Open the actions menu of the playlist that is showing and choose one of its items. */
+  async playlistAction(name: string | RegExp): Promise<void> {
+    await this.sidebar.getByRole('button', { name: 'Playlist actions' }).click()
+    await this.page.getByRole('menuitem', { name }).click()
   }
 
   get tools(): Locator {

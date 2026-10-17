@@ -9,12 +9,14 @@ import { useTrackAnnouncements } from './hooks/useA11y'
 import { useTvMode } from './hooks/useTvMode'
 import { useTheme } from './hooks/useTheme'
 import { filesFromDrop } from './lib/dropped'
+import { isPlaylistFile } from './lib/metadata'
 import { attachPlayer, useShare } from './lib/share/store'
 import Playlist from './components/Playlist'
 import NowPlaying from './components/NowPlaying'
 import NowPlayingSheet from './components/NowPlayingSheet'
 import QueueSheet from './components/QueueSheet'
 import ImportStatus from './components/ImportStatus'
+import OverlayGate from './components/OverlayGate'
 import LiveRegion, { SkipLinks } from './components/LiveRegion'
 import { lazyPanel, preloadWhenIdle } from './components/lazy'
 import PlayerBar, { MiniBar } from './components/PlayerBar'
@@ -98,6 +100,20 @@ export default function App() {
     document.title = p.current ? `${p.current.title} — ${p.current.artist}` : 'Wavelocal — Private Music Player'
   }, [p.current])
 
+  // Files from the picker or dropped on the window: a playlist file becomes a playlist (after the music that came with
+  // it is in the library), everything else is music.
+  const latest = useRef(p)
+  latest.current = p
+  const takeFiles = useCallback(async (files: File[]): Promise<void> => {
+    const lists = files.filter((f) => isPlaylistFile(f.name))
+    const music = lists.length ? files.filter((f) => !isPlaylistFile(f.name)) : files
+    if (music.length) await latest.current.addFiles(music)
+    if (!lists.length) return
+    await new Promise((resolve) => setTimeout(resolve, 0)) // let the library the import just filled reach this render
+    const { importPlaylistFiles } = await import('./lib/playlistio')
+    await importPlaylistFiles(latest.current, lists)
+  }, [])
+
   // Window-wide drag & drop for external files (internal queue reordering is ignored).
   useEffect(() => {
     let depth = 0
@@ -122,7 +138,7 @@ export default function App() {
       depth = 0
       setDragging(false)
       // read synchronously: the browser empties the DataTransfer once this handler returns (folders need walking)
-      void filesFromDrop(e.dataTransfer).then((files) => files.length && p.addFiles(files))
+      void filesFromDrop(e.dataTransfer).then((files) => (files.length ? takeFiles(files) : undefined))
     }
     window.addEventListener('dragenter', enter)
     window.addEventListener('dragover', over)
@@ -134,14 +150,14 @@ export default function App() {
       window.removeEventListener('dragleave', leave)
       window.removeEventListener('drop', drop)
     }
-  }, [p.addFiles])
+  }, [takeFiles])
 
   const onInput = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files?.length) p.addFiles(e.target.files)
+      if (e.target.files?.length) void takeFiles(Array.from(e.target.files)) // copied at once: the browser empties the list when the input is reset
       e.target.value = ''
     },
-    [p.addFiles],
+    [takeFiles],
   )
 
   const pickFiles = () => fileInput.current?.click()
@@ -151,7 +167,7 @@ export default function App() {
     <div className="flex h-full flex-col pt-safe">
       <SkipLinks />
       <LiveRegion />
-      <input ref={fileInput} type="file" accept="audio/*,.mp3,.m4a,.flac,.ogg,.wav,.lrc" multiple hidden onChange={onInput} />
+      <input ref={fileInput} type="file" accept="audio/*,.mp3,.m4a,.flac,.ogg,.wav,.lrc,.m3u,.m3u8,.pls" multiple hidden onChange={onInput} />
       <input ref={folderInput} type="file" webkitdirectory="" directory="" multiple hidden onChange={onInput} />
 
       {/* everything behind a modal dialog is inert: no focus, no screen reader virtual cursor, no clicks */}
@@ -197,11 +213,7 @@ export default function App() {
         </button>
       )}
 
-      {p.notice && (
-        <div className="fixed inset-x-0 bottom-24 z-[70] mx-auto w-fit max-w-[90vw] animate-fadeIn rounded-full bg-raised px-5 py-2.5 text-sm shadow-lg ring-1 ring-white/10" role="status">
-          {p.notice}
-        </div>
-      )}
+      <OverlayGate />
 
       {p.decoding !== null && (
         <div className="fixed right-4 top-16 z-[60] flex items-center gap-2 rounded-full bg-raised px-4 py-2 text-sm shadow-lg" role="status">

@@ -16,9 +16,10 @@ const SHORTCUTS: readonly (readonly [keys: string, description: string])[] = [
   ['T', 'Toggle TV mode'],
   ['?', 'Show this help'],
   ['Alt + ↑ / ↓', 'Move the focused track up / down the queue'],
+  ['Ctrl + Z', 'Undo the last playlist or queue change'],
   ['Arrows, Home, End', 'Move between albums or artists'],
   ['Enter', 'Open the focused album or artist'],
-  ['Esc', 'Close the top panel, or go back a page'],
+  ['Esc', 'Close the top panel or question, or go back a page'],
 ]
 
 interface ShortcutsModalProps {

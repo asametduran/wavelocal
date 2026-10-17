@@ -1,6 +1,15 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
+// Icons that only lazy panels use (sound tools, tag editor, folder tree, album pages, playlist menu). The `icons` chunk is
+// loaded at start-up, so these are left out of it and ride along with the panel that needs them. An icon missing from this
+// list is harmless: it just joins the start-up chunk (the size budget, `npm run size`, is what notices).
+const LAZY_ONLY_ICONS = [
+  'accessibility', 'activity', 'chevron-left', 'chevron-right', 'columns-2', 'copy', 'database-backup', 'download', 'folder',
+  'gauge', 'image-plus', 'keyboard', 'list-end', 'list-start', 'locate-fixed', 'moon', 'orbit', 'palette', 'radio',
+  'sliders-vertical', 'undo-2', 'waves',
+]
+
 // base './' keeps the build portable (static hosts, sub-paths, file shares) and the PWA scope relative.
 export default defineConfig({
   base: './',
@@ -14,7 +23,7 @@ export default defineConfig({
         codeSplitting: {
           groups: [
             { name: 'react', test: /node_modules[\/](react|react-dom|scheduler)[\/]/, priority: 20 },
-            { name: 'icons', test: /node_modules[\/]lucide-react[\/]/, priority: 10 },
+            { name: 'icons', test: new RegExp(`node_modules[\\\\/]lucide-react[\\\\/](?!.*[\\\\/](?:${LAZY_ONLY_ICONS.join('|')})\\.mjs$)`), priority: 10 },
           ],
         },
       },

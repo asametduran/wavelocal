@@ -4,7 +4,7 @@ import Cover from './Cover'
 import FormatBadge from './FormatBadge'
 import Lyrics from './Lyrics'
 import Visualizer from './Visualizer'
-import { StageTabs } from './NowPlaying'
+import { StageTabs, UpNextStage } from './NowPlaying'
 import type { StageTab } from './NowPlaying'
 import type { PlayerApi } from '../types'
 import { Transport } from './PlayerBar'
@@ -54,7 +54,7 @@ export default function NowPlayingSheet({ p, open, onClose, onOpenQueue, onOpenT
         <button onClick={onClose} className="grid h-11 w-11 place-items-center rounded-full text-zinc-300 active:bg-white/10" aria-label="Minimize player">
           <ChevronDown size={28} />
         </button>
-        <StageTabs tab={tab} setTab={setTab} hasLyrics={!!current?.lyrics} idBase={idBase} />
+        <StageTabs tab={tab} setTab={setTab} hasLyrics={!!current?.lyrics} queued={p.upNext.length} idBase={idBase} />
         <div className="flex">
           <button onClick={onOpenTools} className="grid h-11 w-11 place-items-center rounded-full text-zinc-300 active:bg-white/10" aria-label="Equalizer and tools">
             <SlidersHorizontal size={20} />
@@ -80,6 +80,8 @@ export default function NowPlayingSheet({ p, open, onClose, onOpenQueue, onOpenT
           </div>
           <Visualizer engine={p.engine} playing={playing} className="mt-4 h-12" />
         </div>
+      ) : tab === 'queue' ? (
+        <UpNextStage p={p} idBase={idBase} className="relative flex min-h-0 flex-1 flex-col px-3" />
       ) : (
         <div role="tabpanel" id={`${idBase}-panel`} aria-labelledby={`${idBase}-lyrics`} className="relative flex min-h-0 flex-1 flex-col px-2">
           <div className="mb-1 text-center">

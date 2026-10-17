@@ -82,13 +82,13 @@ test.describe('queue management', () => {
 
   test('clearing the library asks for confirmation', async () => {
     const clear = app.sidebar.getByRole('button', { name: 'Clear library' })
-
-    app.answerNextDialog(false)
     await clear.click()
+
+    await app.answerDialog(false)
     await expect(app.rows).toHaveCount(3)
-
-    app.answerNextDialog(true)
     await clear.click()
+
+    await app.answerDialog(true)
     await expect(app.rows).toHaveCount(0)
     await expect(app.viewSelect.locator('option[value="all"]')).toHaveText('Library (0)')
   })

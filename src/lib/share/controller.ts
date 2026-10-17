@@ -384,7 +384,11 @@ export class ShareController {
 
   private nextTrack(): Track | null {
     const p = currentPlayer()
-    if (!p?.current || p.shuffle || p.repeat === 'one') return null
+    if (!p?.current || p.repeat === 'one') return null
+    // what was queued by hand plays next, shuffling or not
+    const queued = p.upNext[0]
+    if (queued) return queued
+    if (p.shuffle) return null
     const at = p.playQueue.findIndex((t) => t.id === p.current?.id)
     const next = at >= 0 ? (p.playQueue[at + 1] ?? (p.repeat === 'all' ? p.playQueue[0] : undefined)) : undefined
     return next && next.id !== p.current.id ? next : null

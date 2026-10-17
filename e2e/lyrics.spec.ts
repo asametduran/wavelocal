@@ -63,7 +63,8 @@ test.describe('synced lyrics', () => {
 
   test('lyrics are stored with the track and survive a reload', async () => {
     await app.importFiles(wav('tone-440', 'song.wav'), lrc('song.lrc', LINES))
-    await app.page.waitForTimeout(400)
+    // wait until the track and its lyrics are saved: a reload before that finds an empty library
+    await expect.poll(() => app.storedTracks()).toMatchObject([{ name: 'song.wav', lyrics: true }])
     await app.reload()
     await openLyrics()
     await expect(line('third line')).toBeVisible()

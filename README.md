@@ -26,6 +26,7 @@ A modern dark-mode music player that runs entirely in your browser. Your files a
 - **Sort** — a sort menu above the list: title, artist, album, track number, length, date added, play count and year, ascending or descending (named in words: *A to Z*, *newest first*), remembered. Text sorts the way your language sorts it (accents and case do not matter, "Track 2" comes before "Track 10"), unknown values (no year, no album) always go last, and ties fall back to a natural order (an artist's albums stay together, an album stays in disc and track order). Next and previous follow the sorted order, rows say why they are where they are ("2019", "added 3 days ago"), and dragging is only offered in the stored order.
 - **Albums and artists** — the *Albums* and *Artists* tabs group the list on screen (the library, a playlist or a smart list) by the tags: covers, titles, years and totals in a virtualized grid that stays smooth with thousands of albums; compilations stay together under *Various Artists*, tracks with no album tag gather on one *Unknown album*. An album opens as a page with its tracks in disc and track order (a heading per disc), an artist as a page with their albums oldest first; each has *Play*, *Shuffle* and *Add to playlist* for the whole thing, and a card or row plays without opening. Playing from a page keeps playing from that page while you browse on (the album does not change under you when you look at another one); playing a track from the track list goes back to following that list. Arrow keys, Home/End and PageUp/PageDown move between cards, Back, `Esc` and a phone's Back button close a page, and the panel widens for browsing on tablets and desktops.
 - **Queue** — click to play, drag to reorder (in the stored order), remove tracks, live search
+- **Up Next** — *Play next* and *Add to queue* on every track's `+` menu and on every album and artist page put tracks in a queue that plays before the list carries on: the latest *Play next* plays first, a track can be queued twice, and the list then carries on after the track the queue interrupted (not after the queued one). The *Up Next* tab beside Artwork and Lyrics lists it with a count: play a track now, move it (arrow buttons, `Alt+↑`/`Alt+↓` or dragging), take it out, or clear it, each with an *Undo*. It is saved with the library and survives a restart, tracks that leave the library leave the queue, shuffle and gapless/crossfade respect it, and a queued track that is still being decoded when its turn comes is waited for rather than dropped.
 - **OS integration** — Media Session API (media keys, lock-screen controls)
 - **Responsive** — sidebar on desktop, slide-over queue on mobile
 
@@ -40,7 +41,9 @@ A modern dark-mode music player that runs entirely in your browser. Your files a
 - **Visualizer** — live canvas spectrum bars or waveform on the Now Playing screen (click to switch).
 - **Synced lyrics** — drop `Song.lrc` next to `Song.mp3` (matched by file name) or load one from the Lyrics tab; embedded ID3 lyrics are used too. Karaoke-style auto-scroll, tap a line to seek.
 - **Offline library** — imported tracks, playlists, queue order, lyrics, settings and your last position are stored in IndexedDB, so a refresh or app restart keeps your music. Nothing leaves the device.
-- **Playlists** — create from any track's `+` menu; reorder by drag; the library is separate from playlists.
+- **Playlists** — create from any track's `+` menu or from an album or artist page; reorder by drag; the library is separate from playlists. The `…` menu of an open playlist renames it, duplicates it (right after the original, "… copy"), saves it as a file, or deletes it; a deleted playlist can be brought back, with its place in the list and the tracks the library still has, and is opened again if it was open.
+- **Playlist files** — pick or drop an `.m3u`, `.m3u8` or `.pls` file (alone, or together with the music it names: the music goes in first) and it becomes a playlist; save any playlist as M3U8 or PLS to use it elsewhere. A playlist file is untrusted text from another player or another system, so reading is forgiving about how it is written and strict about what comes out: UTF-8, UTF-16 or Windows-1252, either line ending, `#EXTINF` titles and lengths, `file://` URLs and percent-encoding, Windows and Unix paths, and quoted paths; tracks are found by path, then by file name (the folders decide between files of the same name), then by name with another extension, and finally by the title and artist the file gives, which is only trusted when exactly one track fits. Tracks the library does not have are listed in a dialog, internet streams are skipped and said so, and two files with the same name never overwrite each other.
+- **Dialogs, toasts and undo** — nothing in the app uses the browser's own `prompt` and `confirm` boxes (the desktop shell has no `prompt` at all): questions are in-app dialogs that trap focus, make the page behind them inert, start on *Cancel* when the answer destroys something, and close with `Esc`, a click outside, a remote's Back key or a phone's Back button, which leaves a sheet under them open. Changes that can be taken back (deleting or duplicating a playlist, queueing, removing from or clearing the queue) say so in a toast with an *Undo*, and `Ctrl+Z` takes back the latest one.
 - **Listen together** — Sound & tools → *Listen together* plays your music on several devices at once, in sync, over the same Wi-Fi. There is no server and no account: the devices connect directly (WebRTC) after you copy two short text codes between them (an *invite* from the host, a *reply* from the listener) by any means you like: a chat message, a note, reading it out. No STUN/TURN servers are configured, so nothing leaves your local network (and it does not work across the internet, by design). The host's play, pause, seek and track changes are followed by every listener; clocks are aligned with an NTP-style ping/pong, and a listener that drifts more than ~0.35 s is pulled back. A song a listener does not have is streamed from the host (only the current and next track, chunked with back-pressure and verified by byte count and CRC-32) and saved to their library like any import. The host can allow listeners to play/pause/skip. Up to 6 listeners. Needs a browser or WebView with WebRTC.
 - **Sleep timer** — 15 / 30 / 45 / 60 min with a smooth 12-second fade-out.
 - **Gapless & crossfade** — preloads the next track; crossfade blends over ~5 s.
@@ -73,16 +76,17 @@ In TV mode arrow keys move focus (D-pad) instead of seeking; use the focused see
 | `S` | Shuffle |
 | `R` | Cycle repeat (off → all → one) |
 | `/` | Focus search (`Esc` clears it, then leaves it) |
-| `Alt+↑` / `Alt+↓` | Move the focused track up / down the queue (the keyboard alternative to dragging) |
+| `Alt+↑` / `Alt+↓` | Move the focused track up / down the queue or the Up Next list (the keyboard alternative to dragging) |
+| `Ctrl+Z` | Undo the latest playlist or queue change (the toast's *Undo*); a text field keeps its own undo |
 | Arrows, `Home`, `End`, `PageUp`, `PageDown` | Move between the albums or artists (one card is in the Tab order; `Enter` opens it) |
-| `Esc` | Close the top panel, or go back from an album or artist page |
+| `Esc` | Close the top panel or question, or go back from an album or artist page |
 
 ## Accessibility
 
 Wavelocal targets WCAG 2.2 AA and is checked automatically: `e2e/a11y.spec.ts` runs axe-core (WCAG 2.0 to 2.2 A/AA plus best practices) over the empty library, a playing track, both stage tabs, the folder view, the sound tools, the shortcut list, the tag editor and the phone sheets, and fails on any violation.
 
 - **Screen readers** - landmarks and a skip-link pair (library, player controls), one polite live region that announces track changes, play/pause, search result counts (tracks, albums or artists), sort changes ("Sorted by Title, A to Z") and reorders, an album or artist page that moves focus to its title, spoken slider values ("1 minute 5 seconds of 3 minutes 20 seconds"), labelled tab lists, radio groups and menus, and `aria-posinset`/`aria-setsize` on the virtualized track list.
-- **Keyboard** - every dialog and sheet moves focus in, keeps Tab inside (the sound tools and shortcut list also make the page behind them `inert`) and returns focus to the control that opened it; tabs and radio groups use arrow keys / Home / End with a single tab stop; the add-to-playlist menu is arrow-key operable; reordering works without dragging (`Alt+↑`/`Alt+↓`).
+- **Keyboard** - every dialog and sheet moves focus in, keeps Tab inside (the sound tools and shortcut list also make the page behind them `inert`) and returns focus to the control that opened it; tabs and radio groups use arrow keys / Home / End with a single tab stop; the add-to-playlist and playlist menus are arrow-key operable; reordering works without dragging (`Alt+↑`/`Alt+↓`). Questions are labelled dialogs (`alertdialog` when the answer destroys something) whose first focus is the safe choice, toasts are polite status messages that wait while the pointer or focus is on them, and a phone's Back button or a remote's Back key answers a question with "no" instead of leaving the app or closing the sheet under it.
 - **Motion** - follows the system "reduce motion" setting, with a Motion override (follow device / reduce / full) in Sound & tools for WebViews that cannot see it. Reduced motion turns off animations, smooth scrolling and the live visualizer (a still frame is drawn).
 - **Contrast** - secondary text meets 4.5:1 on every surface, and an accent colour that is too dark to read is lightened automatically while the text on filled accent buttons flips between black and white (`src/lib/contrast.ts`). `prefers-contrast: more` and Windows forced-colors mode have dedicated styles.
 
@@ -117,7 +121,7 @@ CI (`.github/workflows/ci.yml`) runs the typecheck, unit tests and e2e suite on 
 npm run desktop:install   # once: installs Electron and TypeScript in desktop/
 npm run desktop:dev       # Vite dev server + Electron
 npm run build && npm run desktop:start   # run the built app
-npm run desktop:test      # Electron smoke tests (needs a fresh `npm run build`)
+npm run desktop:test      # Electron smoke tests: window, tray, hotkeys, in-app dialogs (builds first)
 ```
 
 The shell adds a **system tray**: a now-playing tooltip, and a menu with play/pause, next, previous, show/hide, *Close to tray* (on by default; closing or minimizing the window then keeps the music playing in the tray) and quit. The page talks to it through a small typed bridge (`window.wavelocalDesktop.tray`) whose messages are validated on both sides.
@@ -170,6 +174,14 @@ src/
 │   ├── browse.ts         browse modes and the trail of open pages (what Back does)
 │   ├── grid.ts           layout maths of the virtualized grid: columns, visible rows, arrow-key targets
 │   ├── view.ts           the tracks a list shows (the library or a playlist, sorted) and why a row is where it is
+│   ├── upnext.ts         the Up Next queue as pure functions on track ids: play next, add, take, move, undo, where the list carries on
+│   ├── queueactions.ts, queuemessages.ts   what "Play next" / "Add to queue" / "Clear" do for the listener and say in a toast
+│   ├── overlays.ts       dialogs and toasts as plain data (a store, promises for the answers): no DOM, no React
+│   ├── backlayer.ts      layers the system Back closes: one history entry per open dialog, kept apart from the sheets' own Back handling
+│   ├── playlists.ts      playlist names (clean, unique, "… copy") and putting a deleted playlist back
+│   ├── playlistfiles.ts  M3U / M3U8 / PLS reading and writing, and tolerant matching of what a file lists to library tracks
+│   ├── playlistio.ts     importing playlist files and downloading playlists as files (lazy chunk)
+│   ├── download.ts       save a blob as a file
 │   ├── share/            listen together: pairing codes, wire protocol, clock sync, drift planning, file streaming, WebRTC peer (lazy chunk)
 │   ├── metadata.ts       file helpers (audio/lrc classification, library key), record → track with lazy object URLs
 │   └── format.ts         time and total-length formatting, audio-format badge, procedural fallback artwork
@@ -179,6 +191,9 @@ src/
     ├── TrackList.tsx     the virtualized track rows: play, edit, add to playlist, drag/Alt+Arrow reorder, headings
     ├── Browse.tsx        albums and artists views and their pages (lazy chunk, with GroupPage.tsx and VirtualGrid.tsx)
     ├── SortMenu.tsx, SearchBox.tsx, ModeTabs.tsx, PlaylistMenu.tsx   the panel's controls
+    ├── ActionsMenu.tsx   the open playlist's menu: rename, duplicate, save as a file, delete (lazy chunk)
+    ├── OverlayGate.tsx, Overlays.tsx   dialogs and toasts: the gate is in the first load, the dialog and toast views are a lazy chunk
+    ├── UpNextPanel.tsx   the Up Next tab: play, move, remove, clear (lazy chunk)
     ├── NowPlaying.tsx    center stage: artwork, title, empty state
     ├── PlayerBar.tsx     persistent transport + seek + volume
     ├── Slider.tsx        styled range input
