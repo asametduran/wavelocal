@@ -399,10 +399,8 @@ export async function rejectFlacDecoding(page: Page): Promise<void> {
   })
 }
 
-const parseClock = (text: string): number => {
-  const [m, s] = text.trim().split(':')
-  return Number(m) * 60 + Number(s)
-}
+/** "2:05" is 125 seconds and "1:23:45" is 5,025: the clocks of the footer show hours from an hour on. */
+const parseClock = (text: string): number => text.trim().split(':').reduce((total, part) => total * 60 + Number(part), 0)
 
 /** Page object for the desktop layout (library sidebar, stage, footer transport). */
 export class PlayerPage {
@@ -641,11 +639,11 @@ export class PlayerPage {
 
   /** Playback position shown in the footer, in seconds. */
   async position(): Promise<number> {
-    return parseClock(await this.footer.locator('span.w-10.text-right').innerText())
+    return parseClock(await this.footer.locator('span:is(.w-10, .w-14).text-right').innerText())
   }
 
   async duration(): Promise<number> {
-    return parseClock(await this.footer.locator('span.w-10:not(.text-right)').innerText())
+    return parseClock(await this.footer.locator('span:is(.w-10, .w-14):not(.text-right)').innerText())
   }
 
   /** Wait until the active track's metadata is loaded (duration known), then seek. */

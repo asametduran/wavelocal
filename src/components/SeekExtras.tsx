@@ -83,7 +83,7 @@ function ToolsRow({ p, big, bookmarks }: { p: PlayerApi; big: boolean; bookmarks
   const round = `${step} ${big ? 'h-10 w-10' : 'h-7 w-7'}`
 
   return (
-    <div role="group" aria-label="Loop and bookmarks" className={`flex min-w-0 items-center justify-center gap-1 ${big ? 'text-sm' : 'text-xs'}`}>
+    <div role="group" aria-label="Loop and bookmarks" className={`flex max-w-full min-w-0 flex-wrap items-center justify-center gap-1 ${big ? 'text-sm' : 'text-xs'}`}>
       <button
         type="button"
         data-testid="loop-start"
@@ -164,10 +164,16 @@ export default function SeekExtras({ p, big }: { p: PlayerApi; big: boolean }) {
     <div className="flex w-full min-w-0 flex-col items-center gap-1">
       {chapters.length > 0 && <ChapterRow p={p} chapters={chapters} big={big} />}
       {tools && (
-        <div className={`flex w-full min-w-0 flex-wrap items-center justify-center gap-x-2 gap-y-1 ${big ? '' : 'max-w-2xl'}`}>
-          {long && <SkipButton p={p} back big={big} />}
+        // the skip buttons are one item and the loop and bookmark buttons another: where there is no room for both on a line (a
+        // phone, a narrow tablet, a loop labelled with hours) the pair stays together and the others go below, never one button alone
+        <div className={`flex w-full min-w-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 ${big ? '' : 'max-w-2xl'}`}>
+          {long && (
+            <div role="group" aria-label="Skip" className="flex shrink-0 items-center gap-1">
+              <SkipButton p={p} back big={big} />
+              <SkipButton p={p} back={false} big={big} />
+            </div>
+          )}
           <ToolsRow p={p} big={big} bookmarks={bookmarks} />
-          {long && <SkipButton p={p} back={false} big={big} />}
         </div>
       )}
     </div>

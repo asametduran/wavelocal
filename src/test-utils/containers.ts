@@ -46,8 +46,8 @@ export function virtualSource(size: number, head: Uint8Array, tail: Uint8Array =
   }
 }
 
-/** Concatenate byte sequences. */
-export function cat(...parts: Bytes[]): Uint8Array<ArrayBuffer> {
+/** Concatenate a list of byte sequences, of any length (a function call cannot take 150,000 arguments, a three-hour MP3 has that many frames). */
+export function catAll(parts: readonly Bytes[]): Uint8Array<ArrayBuffer> {
   let total = 0
   for (const p of parts) total += p.length
   const out = new Uint8Array(total)
@@ -57,6 +57,11 @@ export function cat(...parts: Bytes[]): Uint8Array<ArrayBuffer> {
     at += p.length
   }
   return out
+}
+
+/** Concatenate byte sequences. */
+export function cat(...parts: Bytes[]): Uint8Array<ArrayBuffer> {
+  return catAll(parts)
 }
 
 export const ascii = (s: string): number[] => Array.from(s, (c) => c.charCodeAt(0) & 0xff)
@@ -261,7 +266,7 @@ export function buildMp3(o: Mp3Options): Uint8Array<ArrayBuffer> {
   }
   const audioBytes = audio.reduce((n, a) => n + a.length, 0)
   const info = o.xing ? xingFrame(f, o.xing, o.frames, audioBytes) : o.vbri ? vbriFrame(f, o.vbri.frames ?? o.frames, audioBytes) : null
-  return cat(o.leading ?? [], o.id3v2 ?? [], zeros(o.gap ?? 0), info ?? [], ...audio, o.id3v1 ? id3v1Tag() : [], o.trailing ?? [])
+  return cat(o.leading ?? [], o.id3v2 ?? [], zeros(o.gap ?? 0), info ?? [], catAll(audio), o.id3v1 ? id3v1Tag() : [], o.trailing ?? [])
 }
 
 /** The duration in seconds of `frames` frames, by the definition every decoder uses. */
@@ -297,7 +302,7 @@ export function buildAdts(o: AdtsOptions): Uint8Array<ArrayBuffer> {
     frame.set([0xff, 0xf1, (1 << 6) | (index << 2) | ((channels >> 2) & 1), ((channels & 3) << 6) | ((size >> 11) & 3), (size >> 3) & 0xff, ((size & 7) << 5) | 0x1f, 0xfc])
     frames.push(frame)
   }
-  const whole = cat(o.id3v2 ?? [], ...frames)
+  const whole = cat(o.id3v2 ?? [], catAll(frames))
   return o.cutBytes ? whole.slice(0, whole.length - o.cutBytes) : whole
 }
 
