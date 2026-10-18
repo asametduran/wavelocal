@@ -165,7 +165,9 @@ describe('PeakBuilder', () => {
     expect(result?.length).toBe(PEAK_BUCKETS)
     expect(new Set(result?.peak)).toEqual(new Set([153]))
     expect(new Set(result?.rms)).toEqual(new Set([153]))
-    expect(ms).toBeLessThan(5000)
+    // Only work that grows faster than the audio should fail this (it takes minutes then). The CPU clock counts every thread, and the
+    // parallel garbage collection of a run under coverage made a four-core CI runner read 5.1 s here, against 0.7 s on a laptop.
+    expect(ms).toBeLessThan(12_000)
   })
 
   it('refuses a sample rate that is not a positive number', () => {
