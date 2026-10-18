@@ -79,52 +79,56 @@ function ToolsRow({ p, big, bookmarks }: { p: PlayerApi; big: boolean; bookmarks
   const b = p.loop?.b ?? null
   const height = big ? 'h-10' : 'h-7'
   const icon = big ? 22 : 16
-  const pill = `${height} ${big ? 'min-w-10' : 'min-w-7'} shrink-0 rounded-full px-3 font-semibold tabular-nums transition hover:text-white active:scale-95`
+  const pill = `${height} ${big ? 'min-w-10 px-2.5' : 'min-w-7 px-3'} shrink-0 rounded-full font-semibold tabular-nums transition hover:text-white active:scale-95`
   const round = `${step} ${big ? 'h-10 w-10' : 'h-7 w-7'}`
 
+  // Two pairs that stay whole: where the row has no room for both on a line, the bookmark buttons go below as a pair, never one alone.
   return (
-    <div role="group" aria-label="Loop and bookmarks" className={`flex max-w-full min-w-0 flex-wrap items-center justify-center gap-1 ${big ? 'text-sm' : 'text-xs'}`}>
-      <button
-        type="button"
-        data-testid="loop-start"
-        onClick={() => changeLoop(p, setLoopStart)}
-        aria-label={a === null ? 'A, set loop start here' : `A ${formatTime(a)}, set loop start here`}
-        title="Set the start of the loop here (L)"
-        className={`${pill} ${a === null ? 'text-zinc-400' : 'bg-white/10 text-accent'}`}
-      >
-        {a === null ? 'A' : `A ${formatTime(a)}`}
-      </button>
-      <button
-        type="button"
-        data-testid="loop-end"
-        onClick={() => changeLoop(p, setLoopEnd)}
-        aria-label={b === null ? 'B, set loop end here' : `B ${formatTime(b)}, set loop end here`}
-        title="Set the end of the loop here (L)"
-        className={`${pill} ${b === null ? 'text-zinc-400' : 'bg-white/10 text-accent'}`}
-      >
-        {b === null ? 'B' : `B ${formatTime(b)}`}
-      </button>
-      <button type="button" data-testid="loop-clear" className={round} disabled={a === null} onClick={() => changeLoop(p, clearLoop)} aria-label="Clear the loop" title="Clear the loop (L)">
-        <X size={icon} />
-      </button>
-      <span aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-white/15" />
-      <button type="button" data-testid="bookmark-add" className={round} onClick={() => markHere(listeningService, p)} aria-label="Add a bookmark here" title="Add a bookmark here (B)">
-        <BookmarkPlus size={icon} />
-      </button>
-      <button
-        type="button"
-        data-testid="bookmark-open"
-        aria-haspopup="dialog"
-        onClick={() => chaptersPanel.set(true)}
-        aria-label={bookmarks > 0 ? `Chapters and bookmarks, ${countLabel(bookmarks, 'bookmark')}` : 'Chapters and bookmarks'}
-        title="Chapters and bookmarks (C)"
-        className={`${step} ${height} ${bookmarks > 0 ? 'gap-1 px-2' : big ? 'w-10' : 'w-7'}`}
-      >
-        <span className="flex items-center gap-1">
-          <BookmarkIcon size={icon} />
-          {bookmarks > 0 && <span className="tabular-nums">{bookmarks}</span>}
-        </span>
-      </button>
+    <div role="group" aria-label="Loop and bookmarks" className={`flex max-w-full min-w-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 ${big ? 'text-sm' : 'text-xs'}`}>
+      <div className="flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          data-testid="loop-start"
+          onClick={() => changeLoop(p, setLoopStart)}
+          aria-label={a === null ? 'A, set loop start here' : `A ${formatTime(a)}, set loop start here`}
+          title="Set the start of the loop here (L)"
+          className={`${pill} ${a === null ? 'text-zinc-400' : 'bg-white/10 text-accent'}`}
+        >
+          {a === null ? 'A' : `A ${formatTime(a)}`}
+        </button>
+        <button
+          type="button"
+          data-testid="loop-end"
+          onClick={() => changeLoop(p, setLoopEnd)}
+          aria-label={b === null ? 'B, set loop end here' : `B ${formatTime(b)}, set loop end here`}
+          title="Set the end of the loop here (L)"
+          className={`${pill} ${b === null ? 'text-zinc-400' : 'bg-white/10 text-accent'}`}
+        >
+          {b === null ? 'B' : `B ${formatTime(b)}`}
+        </button>
+        <button type="button" data-testid="loop-clear" className={round} disabled={a === null} onClick={() => changeLoop(p, clearLoop)} aria-label="Clear the loop" title="Clear the loop (L)">
+          <X size={icon} />
+        </button>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <button type="button" data-testid="bookmark-add" className={round} onClick={() => markHere(listeningService, p)} aria-label="Add a bookmark here" title="Add a bookmark here (B)">
+          <BookmarkPlus size={icon} />
+        </button>
+        <button
+          type="button"
+          data-testid="bookmark-open"
+          aria-haspopup="dialog"
+          onClick={() => chaptersPanel.set(true)}
+          aria-label={bookmarks > 0 ? `Chapters and bookmarks, ${countLabel(bookmarks, 'bookmark')}` : 'Chapters and bookmarks'}
+          title="Chapters and bookmarks (C)"
+          className={`${step} ${height} ${bookmarks > 0 ? 'gap-1 px-2' : big ? 'w-10' : 'w-7'}`}
+        >
+          <span className="flex items-center gap-1">
+            <BookmarkIcon size={icon} />
+            {bookmarks > 0 && <span className="tabular-nums">{bookmarks}</span>}
+          </span>
+        </button>
+      </div>
     </div>
   )
 }

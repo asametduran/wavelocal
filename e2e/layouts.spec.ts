@@ -73,6 +73,14 @@ async function prepare(page: Page, layout: Layout): Promise<Rig> {
   if (layout.tv) await page.addInitScript(() => localStorage.setItem('wl-tv', '1'))
   const app = new PlayerPage(page)
   await app.open()
+  // A deliberately wide font (set through the CSSOM: the page's policy refuses a style tag), so that the proof does not depend on which
+  // fonts the machine has. It failed on the CI runner (Linux, DejaVu Sans) while passing on the Windows machine it was written on:
+  // the last button of the loop and bookmark row wrapped onto a line of its own there, which is what this test exists to prevent.
+  await page.evaluate(() => {
+    const sheet = new CSSStyleSheet()
+    sheet.replaceSync('*{font-family:Verdana,"DejaVu Sans",sans-serif !important}')
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]
+  })
   await importWithMtime(app, [BOOK], MTIME)
   await expect(app.rows).toHaveCount(1)
   await expect.poll(async () => (await app.storedTracks()).length).toBe(1)
