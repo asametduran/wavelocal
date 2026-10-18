@@ -25,6 +25,9 @@ export default defineConfig({
         codeSplitting: {
           groups: [
             { name: 'react', test: /node_modules[\/](react|react-dom|scheduler)[\/]/, priority: 20 },
+            // the runtime of the Android app's plugins: shared by the lazy chunks that reach them (saving a file, the Back button),
+            // fetched by the Android app alone, and a chunk of its own so that a test can tell that the web never loads it
+            { name: 'capacitor', test: /node_modules[\/]@capacitor[\/]core[\/]/, priority: 15 },
             { name: 'icons', test: new RegExp(`node_modules[\\\\/]lucide-react[\\\\/](?!.*[\\\\/](?:${LAZY_ONLY_ICONS.join('|')})\\.mjs$)`), priority: 10 },
           ],
         },

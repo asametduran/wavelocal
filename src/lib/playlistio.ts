@@ -1,4 +1,4 @@
-import { downloadBlob } from './download'
+import { saveFile, saveWords } from './savefile'
 import { countLabel } from './format'
 import { noticeDialog, toast } from './overlays'
 import { MAX_PLAYLIST_BYTES, decodePlaylist, entryPath, matchEntries, parsePlaylist, playlistFileName, serializeM3u, serializePls } from './playlistfiles'
@@ -81,8 +81,8 @@ async function importOne(p: ImportTarget, file: File, names: string[]): Promise<
   })
 }
 
-/** Download a playlist as an M3U8 or PLS file, with the tracks the library still has. */
-export function exportPlaylist(playlist: Playlist, tracks: readonly Track[], format: 'm3u8' | 'pls'): void {
+/** Save a playlist as an M3U8 or PLS file (a download; in the Android app the share sheet), with the tracks the library still has. */
+export async function exportPlaylist(playlist: Playlist, tracks: readonly Track[], format: 'm3u8' | 'pls'): Promise<void> {
   const byId = new Map(tracks.map((t) => [t.id, t]))
   const items = playlist.trackIds.flatMap((id) => {
     const t = byId.get(id)
@@ -94,6 +94,7 @@ export function exportPlaylist(playlist: Playlist, tracks: readonly Track[], for
   }
   const fileName = playlistFileName(playlist.name, format)
   const text = format === 'pls' ? serializePls(items) : serializeM3u(playlist.name, items)
-  downloadBlob(new Blob([text], { type: format === 'pls' ? 'audio/x-scpls' : 'audio/x-mpegurl' }), fileName)
-  toast(`Exported ${countLabel(items.length, 'track')} as ${fileName}`)
+  const outcome = await saveFile(new Blob([text], { type: format === 'pls' ? 'audio/x-scpls' : 'audio/x-mpegurl' }), fileName)
+  // a download is all that is known of one (the browser decides where it goes); anything else says what really happened
+  toast(saveWords(outcome, fileName) ?? `Exported ${countLabel(items.length, 'track')} as ${fileName}`)
 }

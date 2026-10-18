@@ -1,7 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { overlays } from './overlays'
 import { exportPlaylist, importPlaylistFiles } from './playlistio'
 import type { Playlist, Track } from '../types'
+
+// What the Android saver (a lazy chunk the web never loads) answers; the saver itself is tested in savefile/native.test.ts
+const android = vi.hoisted(() => ({ save: vi.fn() }))
+vi.mock('./savefile/plugins', () => ({ saveNative: android.save }))
 
 const track = (id: string, folder: string, file: string, title: string, artist = 'Band', duration = 100): Track => ({ id, path: folder, file: { name: file }, title, artist, duration }) as unknown as Track
 const library = [track('t1', 'Music/Rock', '01 Intro.mp3', 'Intro'), track('t2', 'Music/Rock', '02 Song.mp3', 'Song'), track('t3', '', 'Loose.mp3', 'Loose')]
@@ -107,16 +111,78 @@ describe('exportPlaylist', () => {
     })
     URL.createObjectURL = vi.fn(() => 'blob:x')
     URL.revokeObjectURL = vi.fn()
-    exportPlaylist(playlist, library, 'm3u8')
+    await exportPlaylist(playlist, library, 'm3u8')
     expect(click).toHaveBeenCalledTimes(1)
     expect(saved[0]?.name).toBe('Road_Trip.m3u8')
     expect(overlays.snapshot().toasts.at(-1)?.text).toBe('Exported 2 tracks as Road_Trip.m3u8')
   })
 
-  it('does not download an empty playlist, and says why', () => {
+  it('does not download an empty playlist, and says why', async () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
-    exportPlaylist({ id: 'e', name: 'Empty', trackIds: [] }, library, 'pls')
+    await exportPlaylist({ id: 'e', name: 'Empty', trackIds: [] }, library, 'pls')
     expect(click).not.toHaveBeenCalled()
     expect(overlays.snapshot().toasts.at(-1)?.text).toBe('“Empty” is empty: there is nothing to export')
+  })
+})
+
+describe('exportPlaylist in the Android app', () => {
+  const playlist: Playlist = { id: 'p', name: 'Road/Trip', trackIds: ['t2', 't3'] }
+  const toasts = (): string[] => overlays.snapshot().toasts.map((t) => t.text)
+
+  beforeEach(() => {
+    ;(window as { Capacitor?: unknown }).Capacitor = { isNativePlatform: () => true }
+    android.save.mockReset()
+  })
+  afterEach(() => {
+    delete (window as { Capacitor?: unknown }).Capacitor
+    vi.restoreAllMocks()
+  })
+
+  it('hands the text to the saver instead of a download link, and says it was shared, not exported', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    android.save.mockResolvedValue({ kind: 'shared' })
+    await exportPlaylist(playlist, library, 'm3u8')
+    expect(click).not.toHaveBeenCalled()
+    expect(android.save).toHaveBeenCalledTimes(1)
+    const [blob, name] = android.save.mock.calls[0] as [Blob, string]
+    expect(name).toBe('Road_Trip.m3u8')
+    expect(await blob.text()).toBe('#EXTM3U\n#PLAYLIST:Road/Trip\n#EXTINF:100,Band - Song\nMusic/Rock/02 Song.mp3\n#EXTINF:100,Band - Loose\nLoose.mp3\n')
+    expect(toasts()).toContain('Shared Road_Trip.m3u8.')
+    expect(toasts().some((text) => /exported/i.test(text))).toBe(false)
+  })
+
+  it('writes a PLS as audio/x-scpls', async () => {
+    android.save.mockResolvedValue({ kind: 'shared' })
+    await exportPlaylist(playlist, library, 'pls')
+    const [blob, name] = android.save.mock.calls[0] as [Blob, string]
+    expect(name).toBe('Road_Trip.pls')
+    expect(blob.type).toBe('audio/x-scpls')
+  })
+
+  it('says so when the share sheet was closed', async () => {
+    android.save.mockResolvedValue({ kind: 'cancelled' })
+    await exportPlaylist(playlist, library, 'm3u8')
+    expect(toasts()).toContain('Not saved: the share sheet was closed.')
+    expect(toasts().some((text) => /shared|exported/i.test(text))).toBe(false)
+  })
+
+  it('says why when the saver failed', async () => {
+    android.save.mockResolvedValue({ kind: 'failed', why: 'full', error: new Error('No space left on device') })
+    await exportPlaylist(playlist, library, 'm3u8')
+    expect(toasts()).toContain('Could not save Road_Trip.m3u8: this device has no room left.')
+  })
+
+  it('says the app cannot save here when the saver is missing from the build', async () => {
+    android.save.mockImplementation(() => {
+      throw new Error('Plugin Filesystem does not have web implementation.')
+    })
+    await exportPlaylist(playlist, library, 'm3u8')
+    expect(toasts()).toContain('Could not save Road_Trip.m3u8: this app cannot save files here.')
+  })
+
+  it('has nothing to save for an empty playlist, and does not ask the saver', async () => {
+    await exportPlaylist({ id: 'e', name: 'Empty', trackIds: [] }, library, 'm3u8')
+    expect(android.save).not.toHaveBeenCalled()
+    expect(toasts()).toContain('“Empty” is empty: there is nothing to export')
   })
 })

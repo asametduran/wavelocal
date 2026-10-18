@@ -49,6 +49,23 @@ jobs:
           chmod +x ./gradlew
           ./gradlew assembleDebug --no-daemon
 
+      # What the unit tests cannot read: the permissions of the finished app, after every library's manifest has been merged into ours.
+      # INTERNET is the only one the app asks for (AndroidX adds a signature-level permission of its own to apps that use its receivers).
+      # Anything else came with a plugin or an upgrade of one, and that has to be a decision and not a surprise.
+      - name: Check the permissions of the APK
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          TOOL="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          test -x "$TOOL" || { echo "::error::apkanalyzer not found at $TOOL"; exit 1; }
+          PERMISSIONS=$("$TOOL" manifest permissions "$APK")
+          echo "Permissions in the APK:"
+          echo "$PERMISSIONS"
+          UNEXPECTED=$(echo "$PERMISSIONS" | grep -v -x -e 'android.permission.INTERNET' -e '.*\.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION' | grep . || true)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::The APK asks for permissions the app does not: $UNEXPECTED"
+            exit 1
+          fi
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:

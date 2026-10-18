@@ -26,7 +26,10 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
     "@capacitor/core": "^8.5.3",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3",
     "jsmediatags": "^3.9.7",
     "lucide-react": "^1.57.0",
     "react": "^19.3.1",

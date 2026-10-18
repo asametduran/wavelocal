@@ -1,5 +1,11 @@
 {
   "appId": "com.wavelocal.player",
   "appName": "Wavelocal",
-  "webDir": "dist"
+  "webDir": "dist",
+  "plugins": {
+    "SystemBars": {
+      "style": "DARK",
+      "initialViewportFitValueHint": "cover"
+    }
+  }
 }

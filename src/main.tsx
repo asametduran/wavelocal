@@ -18,8 +18,9 @@ createRoot(rootEl).render(
   </StrictMode>,
 )
 
-// Offline copy and updates: after the page has loaded, off the start-up path. Whether this window gets a service worker at
-// all (production web only, not the desktop shell or the Android app, which already hold the app) is decided in there.
+// Offline copy and updates, and the Android app's own parts: after the page has loaded, off the start-up path. Whether this
+// window gets a service worker at all (production web only, not the desktop shell or the Android app, which already hold the
+// app) is decided in there.
 window.addEventListener('load', () => {
-  import('./lib/offline/instance').then((m) => m.startOffline()).catch(note('worker'))
+  import('./lib/afterload').then((m) => m.afterLoad()).catch(note('worker'))
 })

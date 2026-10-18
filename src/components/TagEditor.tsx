@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom'
 import { Download, ImagePlus, Loader2, Trash2, Undo2, X } from 'lucide-react'
 import Cover from './Cover'
 import { useDialog } from '../hooks/useA11y'
+import { toast } from '../lib/overlays'
+import { saveFile, saveWords } from '../lib/savefile'
 import { MAX_FIELD_LENGTH, cleanField, readCover } from '../lib/tags'
 import type { PlayerApi, Track } from '../types'
 
@@ -20,18 +22,6 @@ const field = 'w-full rounded-lg bg-raised px-3 py-2 text-sm outline-none ring-1
 const ghost = 'inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-white/15 disabled:opacity-40'
 const shownArtist = (t: Track): string => (t.artist === 'Unknown Artist' ? '' : t.artist)
 
-/** Save a stored track (with its edited tags) as a regular file download. */
-function downloadTrack(track: Track): void {
-  const url = URL.createObjectURL(track.file)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = track.file.name
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 10_000)
-}
-
 /** Modal editor for a track's title, artist, album and cover art. */
 export default function TagEditor({ p, track, onClose }: TagEditorProps) {
   const id = useId()
@@ -41,6 +31,8 @@ export default function TagEditor({ p, track, onClose }: TagEditorProps) {
   const [cover, setCover] = useState<CoverChoice>({ kind: 'keep' })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  /** A copy is being saved: in the Android app a long recording is written in slices, which takes a while. */
+  const [copying, setCopying] = useState(false)
   const dialog = useRef<HTMLDivElement>(null)
   const titleInput = useRef<HTMLInputElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
@@ -88,6 +80,18 @@ export default function TagEditor({ p, track, onClose }: TagEditorProps) {
     setBusy(false)
     if (!outcome.ok) return setError(outcome.error)
     onClose()
+  }
+
+  /** Save the stored copy of the track, with its edited tags: a download, or in the Android app the share sheet. */
+  const saveCopy = async () => {
+    if (copying) return // aria-disabled, not disabled: the button keeps focus, so Esc and Tab still reach the dialog
+    setCopying(true)
+    setError('')
+    const outcome = await saveFile(track.file, track.file.name)
+    setCopying(false)
+    const words = saveWords(outcome, track.file.name)
+    if (outcome.kind === 'failed') setError(words ?? '')
+    else if (words) toast(words)
   }
 
   // Esc closes (and is not passed on to the sheets behind)
@@ -153,8 +157,8 @@ export default function TagEditor({ p, track, onClose }: TagEditorProps) {
           )}
 
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <button type="button" onClick={() => downloadTrack(track)} className={ghost} title="Download the stored copy with its tags">
-              <Download size={14} /> Download copy
+            <button type="button" onClick={() => void saveCopy()} aria-disabled={copying || undefined} className={`${ghost} aria-disabled:opacity-40`} title="Download the stored copy with its tags">
+              {copying ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} {copying ? 'Preparing…' : 'Download copy'}
             </button>
             <div className="flex gap-2">
               <button type="button" onClick={onClose} className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/15">

@@ -1,5 +1,6 @@
 import { getDesktopBridge } from '../../desktop-bridge'
 import { toast } from '../overlays'
+import { isNativeApp } from '../platform'
 import { OfflineController, chooseOfflinePlan } from './updates'
 
 /** The browser's service worker container, or undefined where there is none (an insecure address, some private windows). */
@@ -19,9 +20,6 @@ function cacheStorage(): CacheStorage | undefined {
     return undefined
   }
 }
-
-/** True inside the Android app (Capacitor adds `window.Capacitor` to its WebView). */
-const isNativeApp = (): boolean => (window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.() === true
 
 /** The one offline controller of the page: the settings read its state, and `startOffline` sets it going. */
 export const offline = new OfflineController({

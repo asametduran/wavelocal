@@ -3,6 +3,8 @@ import { DatabaseBackup, Download, Upload } from 'lucide-react'
 import { MAX_BACKUP_BYTES, backupFileName, countBookmarks, parseBackup } from '../lib/backup'
 import type { Backup, RestoreSummary } from '../lib/backup'
 import { listeningService } from '../lib/listening/instance'
+import { toast } from '../lib/overlays'
+import { saveFile, saveWords } from '../lib/savefile'
 import type { PlayerApi } from '../types'
 
 const button = 'inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-zinc-200 transition hover:bg-white/15 disabled:opacity-40'
@@ -75,15 +77,12 @@ export default function BackupSection({ p }: { p: PlayerApi }) {
     } catch {
       return setError('Could not make the backup. Check your connection and try again.')
     }
-    const blob = new Blob([text], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = backupFileName(new Date())
-    document.body.append(a)
-    a.click()
-    a.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    const fileName = backupFileName(new Date())
+    const outcome = await saveFile(new Blob([text], { type: 'application/json' }), fileName)
+    // a download says nothing more (the browser decides where it goes); in the Android app the share sheet's answer is the news
+    const words = saveWords(outcome, fileName)
+    if (outcome.kind === 'failed') setError(words)
+    else if (words) toast(words)
   }
 
   const choose = async (file: File | undefined) => {

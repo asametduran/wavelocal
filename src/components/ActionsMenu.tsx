@@ -61,7 +61,7 @@ export default function ActionsMenu({ p, playlist, onClose }: ActionsMenuProps) 
     onClose('button')
     try {
       const { exportPlaylist } = await import('../lib/playlistio')
-      exportPlaylist(playlist, p.tracks, format)
+      await exportPlaylist(playlist, p.tracks, format)
     } catch {
       toast('Could not save the playlist: its code could not be loaded. Check your connection.')
     }

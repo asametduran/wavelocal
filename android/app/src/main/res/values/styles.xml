@@ -13,6 +13,8 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- The app is dark whatever the phone's setting: what shows behind the system bars, and before the page has painted, is dark too -->
+        <item name="android:windowBackground">@color/wavelocal_background</item>
     </style>
 
 
