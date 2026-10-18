@@ -20,6 +20,8 @@ export interface PickInput {
   useHistory?: boolean
   /** Finds any track of the library by id, for going back to one that is not in `queue` (it was played from Up Next). */
   find?: (id: string) => Track | undefined
+  /** Tracks that could not be played: they are never chosen, so a queue of them has no next track and a chain of failures ends. */
+  skip?: ReadonlySet<string>
 }
 
 export interface PickResult {
@@ -29,28 +31,50 @@ export interface PickResult {
 }
 
 /** Choose the next or previous track. Never mutates its inputs. */
-export function pickTrack({ queue, currentId, repeat, shuffle, history, dir, auto, random = Math.random, find, useHistory = false }: PickInput): PickResult {
+export function pickTrack({ queue, currentId, repeat, shuffle, history, dir, auto, random = Math.random, find, useHistory = false, skip }: PickInput): PickResult {
   if (!queue.length) return { track: null, history }
   const idx = queue.findIndex((t) => t.id === currentId)
+  const playable = (t: Track | undefined): t is Track => t !== undefined && !skip?.has(t.id)
 
   if (dir < 0) {
     // shuffling has no order to step back through, and neither has a track that is not in the queue (one that came from
-    // Up Next): both go back through what was actually played
+    // Up Next): both go back through what was actually played, past the tracks that could not be played
     if (history.length && (shuffle || idx < 0 || useHistory)) {
-      const prevId = history[history.length - 1] ?? ''
-      return { track: queue.find((t) => t.id === prevId) ?? find?.(prevId) ?? queue[0] ?? null, history: history.slice(0, -1) }
+      let rest = history
+      while (rest.length) {
+        const prevId = rest[rest.length - 1] ?? ''
+        rest = rest.slice(0, -1)
+        const found = queue.find((t) => t.id === prevId) ?? find?.(prevId)
+        if (found && !playable(found)) continue
+        return { track: found ?? queue.find(playable) ?? null, history: rest }
+      }
     }
     // a current track that is not in this view (another album was opened while it plays): previous starts from the end
-    return { track: queue[idx < 0 ? queue.length - 1 : (idx - 1 + queue.length) % queue.length] ?? null, history }
+    for (let step = 1; step <= queue.length; step++) {
+      const at = idx < 0 ? queue.length - step : (((idx - step) % queue.length) + queue.length) % queue.length
+      const t = queue[at]
+      if (playable(t)) return { track: t, history }
+    }
+    return { track: null, history }
   }
 
   if (shuffle && queue.length > 1) {
+    if (skip?.size) {
+      const others = queue.filter((t) => t.id !== currentId && playable(t))
+      return { track: others[Math.floor(random() * others.length)] ?? null, history }
+    }
     let n = queue[Math.floor(random() * queue.length)]
     while (!n || n.id === currentId) n = queue[Math.floor(random() * queue.length)]
     return { track: n, history }
   }
-  if (idx === queue.length - 1) return { track: auto && repeat !== 'all' ? null : (queue[0] ?? null), history }
-  return { track: queue[idx + 1] ?? null, history }
+  // the track after the current one that can be played; the end of the queue ends it too when a track has ended with repeat off
+  for (let step = 1; step <= queue.length; step++) {
+    const at = idx + step
+    if (at >= queue.length && auto && repeat !== 'all') return { track: null, history }
+    const t = queue[at % queue.length]
+    if (playable(t)) return { track: t, history }
+  }
+  return { track: null, history }
 }
 
 /** The tracks shown/played for a view: the whole library for `'all'`, otherwise the playlist's tracks in its order. */

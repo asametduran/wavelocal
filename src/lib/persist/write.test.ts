@@ -319,3 +319,63 @@ describe('guarded writes that fail', () => {
     expect(hand.waiting.size).toBe(0)
   })
 })
+
+describe('reporting what the database refuses', () => {
+  function reporting(failWith: unknown = null) {
+    const report = vi.fn()
+    const gate = new WriteGate()
+    const store = fakeStore(failWith)
+    return { gate, store, report, writer: createWriter({ gate, store, report }) }
+  }
+
+  it('reports every write the database refused, whether nobody, the player or a person waits for the answer', async () => {
+    const quota = new DOMException('The quota has been exceeded.', 'QuotaExceededError')
+    const { gate, report, writer } = reporting(quota)
+    gate.open()
+    writer.saveMeta('order', ['a']) // nobody waits
+    writer.saveMeta('resume', { id: 'a', time: 1 }, { quiet: true }) // an automatic write, dropped without a word
+    writer.removeTrack('a')
+    writer.clearTracks()
+    await expect(writer.saveTracks([record('a')])).rejects.toBe(quota) // somebody waits
+    await expect(writer.patchTracks(new Map([['a', {}]]), { quiet: true })).rejects.toBe(quota)
+    await flush()
+    expect(report).toHaveBeenCalledTimes(6)
+    for (const call of report.mock.calls) expect(call[0]).toBe(quota)
+  })
+
+  it('does not report a write that went through', async () => {
+    const { gate, report, writer } = reporting()
+    gate.open()
+    writer.saveMeta('order', ['a'])
+    await writer.saveTracks([record('a')])
+    await flush()
+    expect(report).not.toHaveBeenCalled()
+  })
+
+  it('does not report a write that was refused because this window may not write: that is not the database failing', async () => {
+    const { gate, store, report, writer } = reporting()
+    gate.memory('unreadable')
+    writer.saveMeta('order', ['a'])
+    writer.saveMeta('resume', { id: 'a', time: 1 }, { quiet: true })
+    await expect(writer.saveTracks([record('a')])).rejects.toBeInstanceOf(NotSavingError)
+    await flush()
+    expect(report).not.toHaveBeenCalled()
+    expect(store.calls).toEqual([])
+  })
+
+  it('reports each try that fails again, so that a disk that stays full shows how often it was asked', async () => {
+    const report = vi.fn()
+    const gate = new WriteGate()
+    const store = fakeStore(new Error('full'))
+    const hand = handRetry()
+    const writer = createWriter({ gate, store, report, retry: { later: hand.later, done: hand.done_ } })
+    gate.open()
+    writer.saveMeta('order', ['a'])
+    await flush()
+    hand.fire('meta:order')
+    await flush()
+    hand.fire('meta:order')
+    await flush()
+    expect(report).toHaveBeenCalledTimes(3)
+  })
+})

@@ -137,6 +137,8 @@ export class OfflineController {
     } catch {
       return this.patch({ reason: 'blocked' })
     }
+    // a browser told to leave workers out (a test runner, a locked-down embedding) may answer with nothing instead of refusing
+    if (!registration) return this.patch({ reason: 'blocked' })
     this.registration = registration
     this.patch({ reason: 'active' })
 

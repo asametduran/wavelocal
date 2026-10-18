@@ -124,6 +124,18 @@ test.describe('lossless playback: the browser says it cannot play WAV/FLAC', () 
     await expect.poll(() => app.playingElements(), { timeout: 8_000 }).toBe(1)
   })
 
+  test('a FLAC that cannot be decoded is skipped, named, and logged as a decode failure without its name', async () => {
+    const broken = { name: 'a-broken.flac', mimeType: 'audio/flac', buffer: Buffer.concat([Buffer.from('fLaC'), Buffer.alloc(200, 0xff)]) }
+    await app.importFiles(broken, flac('tone-880', 'b-good.flac'))
+    await app.play('a-broken')
+    await expect(app.toast(/Could not play "a-broken"/)).toBeVisible({ timeout: 10_000 })
+    await expect(app.nowPlayingTitle).toHaveText('b-good', { timeout: 10_000 })
+    const entries = (): Promise<{ kind: string }[]> =>
+      app.page.evaluate(() => (JSON.parse(localStorage.getItem('wl.diagnostics') ?? 'null') as { entries: { kind: string }[] } | null)?.entries ?? [])
+    await expect.poll(async () => (await entries()).map((e) => e.kind)).toEqual(['decode'])
+    expect(JSON.stringify(await entries())).not.toContain('a-broken')
+  })
+
   test('a damaged frame is replaced by silence and the track still plays to its full length', async () => {
     const bytes = buildFlac('tone-440', { subframe: 'verbatim', blockSize: 4096 })
     const damaged = Buffer.from(bytes)
@@ -204,6 +216,12 @@ test.describe('lossless playback: the browser claims support but fails', () => {
     await app.row('a-bad').locator('button[aria-current]').click()
     await expect(app.page.getByText('None of the next tracks could be played')).toBeVisible({ timeout: 15_000 })
     await app.expectPaused()
+    // and it stays stopped: once the person has been told, nothing keeps trying the files (it used to go on for ever, many times a second)
+    const attempts = await app.flacPlayAttempts()
+    expect(attempts).toBeGreaterThanOrEqual(1)
+    expect(attempts).toBeLessThanOrEqual(4)
+    await app.page.waitForTimeout(1500)
+    expect(await app.flacPlayAttempts()).toBe(attempts)
   })
 })
 

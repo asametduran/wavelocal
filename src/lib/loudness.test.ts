@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { encodeFlac, floatToInt } from '../test-utils/flac-encoder'
 import { encodeWav } from '../test-utils/wav'
 import { MAX_GAIN_DB, MIN_GAIN_DB, TARGET_DBFS, estimateGainDb, gainFromChunks, gainFromSamples } from './loudness'
+
+// what the measuring hands to the error log: a file that neither the browser nor the app's own decoder could read
+const mocks = vi.hoisted(() => ({ note: vi.fn() }))
+vi.mock('./diagnostics/capture', () => ({ note: (kind: string) => (error: unknown) => mocks.note(kind, error) }))
+beforeEach(() => mocks.note.mockReset())
 
 /** A sine wave of the given peak amplitude (RMS = amplitude / sqrt(2)). */
 function sine(amplitude: number, length = 48_000, cycles = 440): Float32Array {
@@ -112,6 +117,7 @@ describe('estimateGainDb without a browser decoder (the JavaScript fallback)', (
   it('measures a FLAC file', async () => {
     const flac = encodeFlac([floatToInt(tone, 16)], { sampleRate: 48000, bitsPerSample: 16 })
     expect(await estimateGainDb(new Blob([flac]))).toBeCloseTo(5, 0)
+    expect(mocks.note).not.toHaveBeenCalled() // the fallback working is no failure
   })
 
   it('measures a WAV file', async () => {
@@ -125,8 +131,16 @@ describe('estimateGainDb without a browser decoder (the JavaScript fallback)', (
     expect(await estimateGainDb(new Blob([flac]))).toBeCloseTo(5, 0)
   })
 
-  it('returns 0 for anything it cannot decode', async () => {
+  it('returns 0 for anything it cannot decode, and hands each failure to the error log', async () => {
     expect(await estimateGainDb(new Blob([new Uint8Array(2000)]))).toBe(0)
     expect(await estimateGainDb(new Blob([]))).toBe(0)
+    expect(mocks.note.mock.calls.map(([kind]) => kind)).toEqual(['decode', 'decode'])
+    expect(mocks.note.mock.calls[0]?.[1]).toBeInstanceOf(Error)
+  })
+
+  it('does not report a file it was never given, or one that is too big to try', async () => {
+    expect(await estimateGainDb(null)).toBe(0)
+    expect(await estimateGainDb(undefined)).toBe(0)
+    expect(mocks.note).not.toHaveBeenCalled()
   })
 })

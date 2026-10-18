@@ -51,9 +51,12 @@ class FakeContainer extends EventTarget {
   readonly registration = new FakeRegistration()
   readonly registered: { url: string; options?: RegistrationOptions }[] = []
   failWith: Error | null = null
+  /** Answers a registration with nothing, as a browser told to leave workers out may. */
+  answerNothing = false
   async register(url: string, options?: RegistrationOptions): Promise<FakeRegistration> {
     this.registered.push({ url, options })
     if (this.failWith) throw this.failWith
+    if (this.answerNothing) return undefined as unknown as FakeRegistration
     return this.registration
   }
   async getRegistrations(): Promise<FakeRegistration[]> {
@@ -176,6 +179,16 @@ describe('start', () => {
     r.container.failWith = new TypeError('SecurityError: blocked')
     await expect(r.controller.start(REGISTER)).resolves.toBeUndefined()
     expect(r.controller.snapshot().reason).toBe('blocked')
+    expect(await r.controller.check()).toBe('unavailable')
+  })
+
+  it('reports a browser that answers a registration with nothing as blocked, without throwing', async () => {
+    const r = rig()
+    r.container.answerNothing = true
+    await expect(r.controller.start(REGISTER)).resolves.toBeUndefined()
+    expect(r.controller.snapshot().reason).toBe('blocked')
+    expect(r.foreground).toEqual([]) // nothing was set going: no checks on coming to the foreground
+    expect(r.timers).toEqual([])
     expect(await r.controller.check()).toBe('unavailable')
   })
 

@@ -1,3 +1,4 @@
+import { note } from '../diagnostics/capture'
 import type { ConvertResult } from './convert'
 import { AudioDecodeError } from './errors'
 import { mightBeLossless } from './lossless'
@@ -228,7 +229,8 @@ export function createWorkerConvert(): ConvertFn {
         }
         // 'peaks-done' belongs to the waveform's own instance of this worker (waveform/client.ts), which this one never asks
       }
-      w.onerror = () => {
+      w.onerror = (event) => {
+        note('worker')(new Error(event.message || 'The decoding worker failed to run')) // the job is done on this thread instead
         broken = true
         worker?.terminate()
         worker = null

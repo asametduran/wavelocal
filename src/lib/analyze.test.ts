@@ -1,8 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { analyzeFile } from './analyze'
 import { buildId3v2, withId3 } from '../test-utils/id3'
 import { buildMp3, buildMp4, buildOgg, buildRiff, w32be } from '../test-utils/containers'
 import { buildFlac } from '../test-utils/fixtures'
+
+// what the analysis hands to the error log: a file the probes could not take
+const mocks = vi.hoisted(() => ({ note: vi.fn() }))
+vi.mock('./diagnostics/capture', () => ({ note: (kind: string) => (error: unknown) => mocks.note(kind, error) }))
+beforeEach(() => mocks.note.mockReset())
 
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array.from({ length: 40 }, (_, i) => i)])
 const blob = (bytes: Uint8Array<ArrayBuffer>, type = 'audio/mpeg'): Blob => new Blob([bytes], { type })
@@ -137,6 +142,23 @@ describe('analyzeFile: robustness', () => {
     const a = await analyzeFile(blob(new Uint8Array(100)), { readTags: boom, mediaDuration: boom })
     expect(a).toMatchObject({ title: '', artist: '', album: '', duration: 0, gainDb: null, cover: null })
     expect(a.meta.audio).toBeNull()
+  })
+
+  it('hands a file the probes could not take to the error log, and still answers', async () => {
+    const hostile = new Blob([new Uint8Array(100)], { type: 'audio/mpeg' })
+    Object.defineProperty(hostile, 'slice', {
+      value: () => {
+        throw new Error('read failed')
+      },
+    })
+    const a = await analyzeFile(hostile, { readTags: async () => ({}), mediaDuration: async () => 0 })
+    expect(a.duration).toBe(0)
+    expect(mocks.note.mock.calls.map(([kind]) => kind)).toEqual(['decode'])
+  })
+
+  it('reports nothing for a file in a format the probes do not know: that is an answer, not a failure', async () => {
+    await analyzeFile(blob(new Uint8Array(100), 'audio/x-unknown'), { readTags: async () => ({}), mediaDuration: async () => 0 })
+    expect(mocks.note).not.toHaveBeenCalled()
   })
 
   it('does not trust sizes in the file: a damaged MP3 still analyses', async () => {

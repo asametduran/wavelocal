@@ -1,10 +1,15 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PeaksService } from './service'
 import type { PeaksDeps, PeaksState, PeaksTarget } from './service'
 import type { Peaks, PeaksRecord } from './types'
 import { AudioDecodeError } from '../audio/pcm'
 import { memoryKv } from '../../test-utils/memorykv'
+
+// what the service hands to the error log: a failure that is the file's or the browser's, not a cancellation or a stored reason
+const mocks = vi.hoisted(() => ({ note: vi.fn() }))
+vi.mock('../diagnostics/capture', () => ({ note: (kind: string) => (error: unknown) => mocks.note(kind, error) }))
+beforeEach(() => mocks.note.mockReset())
 
 const peaks = (seed = 1): Peaks => ({ v: 1, duration: 10, length: 3, peak: Uint8Array.of(seed, 2, 3), rms: Uint8Array.of(1, 1, 1) })
 const target = (id: string): PeaksTarget => ({ id, file: new Blob(['x']), duration: 10 })
@@ -194,6 +199,7 @@ describe('when a track cannot be measured', () => {
     await settled(first.service, 't1')
     expect(first.service.getState('t1')).toEqual({ status: 'none', why: 'unsupported' })
     expect(first.kv.data.get('peaks:t1')).toEqual({ v: 1, none: 'unsupported' })
+    expect(mocks.note).not.toHaveBeenCalled() // a format the browser does not decode is an answer, not a failure
 
     // a later visit finds the stored reason and does not measure
     const measure = vi.fn()
@@ -224,11 +230,22 @@ describe('when a track cannot be measured', () => {
     expect(measure).toHaveBeenCalledTimes(1)
   })
 
+  it('hands a failure that may pass to the error log, once, as the worker failing', async () => {
+    const failure = new Error('out of memory')
+    const { service } = rig({ measure: vi.fn().mockRejectedValue(failure) })
+    service.want(target('t1'))
+    await settled(service, 't1')
+    service.want(target('t1')) // not tried again, so not reported again
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(mocks.note.mock.calls).toEqual([['worker', failure]])
+  })
+
   it('is not an error when the measurement itself was cancelled: the track is simply not measured yet', async () => {
     const { service } = rig({ measure: async () => Promise.reject(new AudioDecodeError('cancelled', 'aborted')) })
     service.want(target('t1'))
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(status(service, 't1')).toBe('idle')
+    expect(mocks.note).not.toHaveBeenCalled() // and not a failure for the log either
   })
 })
 

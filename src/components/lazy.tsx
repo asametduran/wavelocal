@@ -1,38 +1,46 @@
 import { Component, lazy, Suspense, useEffect, useState } from 'react'
 import type { ComponentType, ErrorInfo, ReactNode } from 'react'
+import { keep } from '../lib/diagnostics/capture'
 
 /** A dynamic `import()` of a module whose default export is a component. */
 export type Loader<P extends object> = () => Promise<{ default: ComponentType<P> }>
 
 interface BoundaryState {
   failed: boolean
+  /** The panel's code could not be downloaded (offline, a flaky network), as against code that arrived and then failed. */
+  download: boolean
 }
+
+/** What the browsers throw when a dynamic `import()` cannot fetch its file. */
+const DOWNLOAD_FAILURE = /dynamically imported module|importing a module script failed|loading chunk/i
 
 /**
  * Catches a failed chunk download (offline before the panel was ever cached) so one missing panel cannot blank the
- * whole app. Offers a retry instead of failing silently.
+ * whole app. Offers a retry instead of failing silently. A panel whose code arrived and then threw is a bug, not a connection
+ * problem: it is said so, and kept in the error log (Sound & tools, Diagnostics).
  */
 class ChunkBoundary extends Component<{ children: ReactNode; label: string; onDismiss?: () => void }, BoundaryState> {
-  state: BoundaryState = { failed: false }
+  state: BoundaryState = { failed: false, download: false }
 
-  static getDerivedStateFromError(): BoundaryState {
-    return { failed: true }
+  static getDerivedStateFromError(error: unknown): BoundaryState {
+    return { failed: true, download: error instanceof Error && (error.name === 'ChunkLoadError' || DOWNLOAD_FAILURE.test(error.message)) }
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.warn(`Could not load ${this.props.label}`, error, info.componentStack)
+    keep('boundary', error)
   }
 
   render(): ReactNode {
     if (!this.state.failed) return this.props.children
     return (
       <div role="alert" className="fixed inset-x-0 bottom-24 z-[90] mx-auto flex w-fit max-w-[90vw] items-center gap-3 rounded-full bg-raised px-5 py-2.5 text-sm shadow-lg ring-1 ring-white/10">
-        <span>Could not load {this.props.label}. Check your connection.</span>
+        <span>{this.state.download ? `Could not load ${this.props.label}. Check your connection.` : `Something went wrong in ${this.props.label}.`}</span>
         <button
           type="button"
           className="font-semibold text-accent"
           onClick={() => {
-            this.setState({ failed: false })
+            this.setState({ failed: false, download: false })
             this.props.onDismiss?.()
           }}
         >
@@ -43,11 +51,11 @@ class ChunkBoundary extends Component<{ children: ReactNode; label: string; onDi
   }
 }
 
-/** Suspense + failure containment for one lazily loaded piece of UI. Renders nothing while the chunk loads. */
-export function Deferred({ label, children, onDismiss }: { label: string; children: ReactNode; onDismiss?: () => void }) {
+/** Suspense + failure containment for one lazily loaded piece of UI. Renders nothing (or `fallback`, to hold its place) while the chunk loads. */
+export function Deferred({ label, children, onDismiss, fallback = null }: { label: string; children: ReactNode; onDismiss?: () => void; fallback?: ReactNode }) {
   return (
     <ChunkBoundary label={label} onDismiss={onDismiss}>
-      <Suspense fallback={null}>{children}</Suspense>
+      <Suspense fallback={fallback}>{children}</Suspense>
     </ChunkBoundary>
   )
 }

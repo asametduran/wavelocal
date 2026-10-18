@@ -358,6 +358,8 @@ export async function failNativeFlacPlayback(page: Page): Promise<void> {
     const play = HTMLMediaElement.prototype.play
     HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
       if (types.get(this.getAttribute('src') ?? '') === 'audio/flac') {
+        const counter = window as unknown as { __flacPlays?: number }
+        counter.__flacPlays = (counter.__flacPlays ?? 0) + 1
         setTimeout(() => this.dispatchEvent(new Event('error')), 0)
         return Promise.reject(new DOMException('The element has no supported sources.', 'NotSupportedError'))
       }
@@ -840,6 +842,11 @@ export class PlayerPage {
   /** Web Workers the page has started. */
   async workerCount(): Promise<number> {
     return this.page.evaluate(() => window.__probe.workers)
+  }
+
+  /** How many times the page has tried to play an original FLAC file that `failNativeFlacPlayback` makes fail. */
+  async flacPlayAttempts(): Promise<number> {
+    return this.page.evaluate(() => (window as unknown as { __flacPlays?: number }).__flacPlays ?? 0)
   }
 
   /** Object URLs the page has revoked so far. */

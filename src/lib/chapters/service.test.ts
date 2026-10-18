@@ -1,9 +1,14 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChaptersService } from './service'
 import type { ChaptersDeps, ChaptersState, ChaptersTarget } from './service'
 import type { Chapter } from './types'
 import { memoryKv } from '../../test-utils/memorykv'
+
+// what the service hands to the error log when a file's chapters cannot be read
+const mocks = vi.hoisted(() => ({ note: vi.fn() }))
+vi.mock('../diagnostics/capture', () => ({ note: (kind: string) => (error: unknown) => mocks.note(kind, error) }))
+beforeEach(() => mocks.note.mockReset())
 
 const book: Chapter[] = [
   { start: 0, end: 10, title: 'A' },
@@ -106,6 +111,15 @@ describe('ChaptersService', () => {
     service.want(target('t1'))
     await new Promise((resolve) => setTimeout(resolve, 5))
     expect(read).toHaveBeenCalledTimes(1)
+    expect(mocks.note.mock.calls).toEqual([['decode', new Error('gone')]]) // reported once, with the other attempt that never happened
+  })
+
+  it('reports nothing for a book that is read, and nothing for one without chapters', async () => {
+    const { service } = rig({ read: vi.fn(async () => []) })
+    service.want(target('t1'))
+    await settled(service, 't1')
+    expect(status(service, 't1')).toBe('ready')
+    expect(mocks.note).not.toHaveBeenCalled()
   })
 
   it('tells those who listen when a state changes, and nobody who stopped, and hands out one object until it does', async () => {

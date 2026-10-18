@@ -3,6 +3,8 @@
  * Decodes the track once, measures RMS and peak, and returns the gain (dB) that brings it to TARGET_DBFS
  * without pushing the peak past full scale. The result is cached on the track and in IndexedDB.
  */
+import { note } from './diagnostics/capture'
+
 export const TARGET_DBFS = -18
 export const MAX_GAIN_DB = 12
 export const MIN_GAIN_DB = -12
@@ -77,7 +79,8 @@ export async function estimateGainDb(file: Blob | null | undefined): Promise<num
   try {
     const { firstChannelChunks } = await import('./audio/convert') // only loaded when the browser could not decode the file
     return gainFromChunks(firstChannelChunks(new Uint8Array(buffer)))
-  } catch {
+  } catch (error) {
+    note('decode')(error) // neither the browser nor the app's own decoder could read it: no gain is applied
     return 0
   }
 }

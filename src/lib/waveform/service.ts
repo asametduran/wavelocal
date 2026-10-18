@@ -1,5 +1,6 @@
 import { AudioDecodeError } from '../audio/pcm'
 import type { AudioFormat } from '../audio/probe/types'
+import { note } from '../diagnostics/capture'
 import type { KeyValue } from '../rawdb'
 import { loadPeaks, savePeaks } from './store'
 import type { NoPeaks, Peaks, PeaksRecord } from './types'
@@ -121,8 +122,12 @@ export class PeaksService {
       }
       if (!signal.aborted) this.set(target.id, stateOf(record))
     } catch (error) {
-      if (signal.aborted || isCancelled(error)) this.drop(target.id)
-      else this.set(target.id, FAILED)
+      if (signal.aborted || isCancelled(error)) {
+        this.drop(target.id)
+      } else {
+        note('worker')(error) // the measuring (a worker or the browser's decoder) failed: the bar stays plain
+        this.set(target.id, FAILED)
+      }
     } finally {
       if (this.job?.controller === controller) this.job = null
     }

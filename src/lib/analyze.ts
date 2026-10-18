@@ -4,6 +4,7 @@ import { probeAudio } from './audio/probe'
 import { readId3Text } from './audio/probe/id3'
 import type { ProbeResult, TagValues } from './audio/probe/types'
 import { blobSource } from './audio/source'
+import { note } from './diagnostics/capture'
 import { fieldsFromTagValues, parseGainDb, tagValuesFromJsmediatags } from './tagfields'
 
 /**
@@ -81,7 +82,8 @@ export async function analyzeFile(file: Blob, deps: AnalyzeDeps = {}): Promise<A
   let probed: ProbeResult | null = null
   try {
     probed = await probeAudio(blobSource(file))
-  } catch {
+  } catch (error) {
+    note('decode')(error) // the probes answer null for a format they do not know; a throw is a file they could not take
     probed = null
   }
 

@@ -1,4 +1,5 @@
 import type { AudioFormat } from '../audio/probe/types'
+import { note } from '../diagnostics/capture'
 import type { KeyValue } from '../rawdb'
 import { loadChapters, saveChapters } from './store'
 import type { Chapter } from './types'
@@ -69,7 +70,8 @@ export class ChaptersService {
         await saveChapters(kv, target.id, chapters)
       }
       this.set(target.id, { status: 'ready', chapters })
-    } catch {
+    } catch (error) {
+      note('decode')(error) // the chapters of this file could not be read
       this.set(target.id, FAILED)
     }
   }

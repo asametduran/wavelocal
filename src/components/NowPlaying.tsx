@@ -1,10 +1,10 @@
 import { useEffect, useId, useState } from 'react'
+import type { ComponentProps } from 'react'
 import { FolderOpen, Headphones, Upload } from 'lucide-react'
 import Cover from './Cover'
 import FormatBadge from './FormatBadge'
 import type { LyricsProps } from './Lyrics'
 import RovingGroup from './RovingGroup'
-import Visualizer from './Visualizer'
 import { Deferred, lazyRetry, preloadWhenIdle } from './lazy'
 import type { PlayerApi } from '../types'
 
@@ -17,6 +17,19 @@ const UpNextPanel = lazyRetry(loadUpNext)
 // The lyrics are only fetched when their tab is first opened (or the app is idle).
 export const loadLyrics = () => import('./Lyrics')
 const LyricsView = lazyRetry(loadLyrics)
+
+// The visualizer is a canvas drawn on the stage and in the phone sheet only; it is fetched when the app is idle.
+export const loadVisualizer = () => import('./Visualizer')
+const VisualizerView = lazyRetry(loadVisualizer)
+
+/** The visualizer under the artwork, on the stage and in the phone sheet. A box of its size holds its place while it loads. */
+export function LazyVisualizer({ className = '', ...props }: ComponentProps<typeof VisualizerView>) {
+  return (
+    <Deferred label="the visualizer" onDismiss={() => VisualizerView.reset()} fallback={<div aria-hidden="true" className={`block w-full ${className}`} />}>
+      <VisualizerView className={className} {...props} />
+    </Deferred>
+  )
+}
 
 /** The lyrics view of the Lyrics tab, on the stage and in the phone sheet. */
 export function LazyLyrics(props: LyricsProps) {
@@ -96,7 +109,7 @@ export default function NowPlaying({ p, onPickFiles, onPickFolder }: NowPlayingP
   const { current, playing } = p
   const [tab, setTab] = useState<StageTab>('art')
   const idBase = useId()
-  useEffect(() => preloadWhenIdle([loadUpNext, loadLyrics]), [])
+  useEffect(() => preloadWhenIdle([loadUpNext, loadLyrics, loadVisualizer]), [])
 
   return (
     <section aria-label="Now playing" className="relative hidden min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-6 py-6 md:flex">
@@ -118,7 +131,7 @@ export default function NowPlaying({ p, onPickFiles, onPickFolder }: NowPlayingP
               <p className="mt-1 text-base text-zinc-300">{current.artist}</p>
               {current.album && <p className="text-sm text-zinc-400">{current.album}</p>}
               <FormatBadge audio={current.audio} className="mt-1" />
-              <Visualizer engine={p.engine} playing={playing} className="mt-5 h-16 max-w-md" />
+              <LazyVisualizer engine={p.engine} playing={playing} className="mt-5 h-16 max-w-md" />
             </div>
           ) : tab === 'queue' ? (
             <UpNextStage p={p} idBase={idBase} className="flex min-h-0 w-full flex-1 flex-col" />

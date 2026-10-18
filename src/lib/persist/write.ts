@@ -1,4 +1,5 @@
 import * as db from '../db'
+import { note } from '../diagnostics/capture'
 import type { MetaValues, TrackRecord } from '../../types'
 import { NotSavingError, writeGate } from './gate'
 import type { WriteGate } from './gate'
@@ -48,7 +49,7 @@ export interface RetryPort {
 
 const noRetry: RetryPort = { later: () => {}, done: () => {} }
 
-export function createWriter({ gate, store, retry = noRetry }: { gate: WriteGate; store: WriteStore; retry?: RetryPort }): Writer {
+export function createWriter({ gate, store, retry = noRetry, report = () => {} }: { gate: WriteGate; store: WriteStore; retry?: RetryPort; report?: (error: unknown) => void }): Writer {
   /** The newest write of each key that is not known to have gone through: only that one may be reported or tried again. */
   const latest = new Map<string, () => Promise<void>>()
 
@@ -59,7 +60,12 @@ export function createWriter({ gate, store, retry = noRetry }: { gate: WriteGate
       gate.refuse(quiet)
       throw new NotSavingError(gate.snapshot().mode === 'taken' ? 'taken' : 'memory')
     }
-    await op()
+    try {
+      await op()
+    } catch (error) {
+      report(error) // whatever the database refuses is kept in the error log, whether or not anybody is told or waits for the answer
+      throw error
+    }
   }
 
   /**
@@ -112,4 +118,4 @@ const lazyRetry: RetryPort = {
   done: (key) => void import('./failures').then((failures) => failures.retryDone(key)).catch(() => {}),
 }
 
-export const { saveMeta, saveTracks, patchTracks, removeTrack, clearTracks } = createWriter({ gate: writeGate, store: db, retry: lazyRetry })
+export const { saveMeta, saveTracks, patchTracks, removeTrack, clearTracks } = createWriter({ gate: writeGate, store: db, retry: lazyRetry, report: note('save') })

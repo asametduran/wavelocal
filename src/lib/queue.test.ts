@@ -177,6 +177,92 @@ describe('pickTrack: shuffle', () => {
   })
 })
 
+describe('pickTrack: tracks to skip (the ones that could not be played)', () => {
+  const skipping = (...ids: string[]) => new Set(ids)
+
+  it('changes nothing when there is nothing to skip', () => {
+    for (const currentId of ['a', 'b', 'c', 'elsewhere', null]) {
+      for (const dir of [1, -1] as const) {
+        expect(pick({ currentId, dir, skip: skipping() })).toEqual(pick({ currentId, dir }))
+      }
+    }
+  })
+
+  it('goes past a track to skip, forward and back', () => {
+    expect(pick({ currentId: 'a', skip: skipping('b') }).track?.id).toBe('c')
+    expect(pick({ currentId: 'c', dir: -1, skip: skipping('b') }).track?.id).toBe('a')
+  })
+
+  it('goes past several in a row, and wraps like a manual skip does', () => {
+    expect(pick({ currentId: 'a', skip: skipping('b', 'c') }).track?.id).toBe('a') // only a is left, and it is the current one
+    expect(pick({ currentId: 'b', skip: skipping('c') }).track?.id).toBe('a')
+    expect(pick({ currentId: 'a', dir: -1, skip: skipping('c') }).track?.id).toBe('b')
+  })
+
+  it('still stops at the end of the queue when a track ends with repeat off, even when the tracks at the end are skipped', () => {
+    expect(pick({ currentId: 'b', auto: true, repeat: 'off', skip: skipping('c') }).track).toBeNull()
+  })
+
+  it('wraps past skipped tracks when a track ends with repeat all', () => {
+    expect(pick({ currentId: 'b', auto: true, repeat: 'all', skip: skipping('c', 'a') }).track?.id).toBe('b')
+    expect(pick({ currentId: 'b', auto: true, repeat: 'all', skip: skipping('c') }).track?.id).toBe('a')
+  })
+
+  it('has no track when every track is skipped, whatever repeat says: the chain of failures ends by itself', () => {
+    const all = skipping('a', 'b', 'c')
+    for (const repeat of ['off', 'all', 'one'] as const) {
+      for (const auto of [true, false]) {
+        expect(pick({ currentId: 'a', repeat, auto, skip: all }).track).toBeNull()
+        expect(pick({ currentId: 'a', repeat, auto, shuffle: true, skip: all }).track).toBeNull()
+        expect(pick({ currentId: 'a', repeat, auto, dir: -1, skip: all }).track).toBeNull()
+      }
+    }
+  })
+
+  it('has no track when only the current track is left and it is the one that failed', () => {
+    expect(pick({ currentId: 'a', repeat: 'all', auto: true, skip: skipping('a', 'b', 'c') }).track).toBeNull()
+  })
+
+  it('starts from the first track that is not skipped when nothing is current', () => {
+    expect(pick({ currentId: null, skip: skipping('a') }).track?.id).toBe('b')
+    expect(pick({ currentId: null, dir: -1, skip: skipping('c') }).track?.id).toBe('b')
+  })
+
+  it('never shuffles into a skipped track, and reaches every other one', () => {
+    const seen = new Set<string>()
+    for (let i = 0; i < 300; i++) {
+      const id = pick({ shuffle: true, currentId: 'a', skip: skipping('b') }).track?.id ?? ''
+      seen.add(id)
+    }
+    expect(seen).toEqual(new Set(['c']))
+    const many = ['a', 'b', 'c', 'd', 'e'].map(track)
+    const reached = new Set<string>()
+    for (let i = 0; i < 400; i++) reached.add(pick({ queue: many, shuffle: true, currentId: 'a', skip: skipping('c') }).track?.id ?? '')
+    expect(reached).toEqual(new Set(['b', 'd', 'e']))
+  })
+
+  it('has no track to shuffle to when everything else is skipped', () => {
+    expect(pick({ shuffle: true, currentId: 'a', skip: skipping('b', 'c') }).track).toBeNull()
+  })
+
+  it('goes back through what was played, past the tracks to skip, and takes them out of history', () => {
+    const result = pick({ currentId: 'x', dir: -1, history: ['a', 'b', 'c'], skip: skipping('c', 'b') })
+    expect(result.track?.id).toBe('a')
+    expect(result.history).toEqual([])
+    const kept = pick({ currentId: 'x', dir: -1, history: ['a', 'b', 'c'], skip: skipping('a') })
+    expect(kept.track?.id).toBe('c')
+    expect(kept.history).toEqual(['a', 'b'])
+  })
+
+  it('does not mutate its inputs', () => {
+    const history = Object.freeze(['a', 'b'])
+    const skip: ReadonlySet<string> = new Set(['a'])
+    pick({ currentId: 'x', dir: -1, history, skip })
+    expect(history).toEqual(['a', 'b'])
+    expect([...skip]).toEqual(['a'])
+  })
+})
+
 describe('resolveQueue', () => {
   const playlists: Playlist[] = [
     { id: 'p1', name: 'Mix', trackIds: ['c', 'a', 'missing'] },

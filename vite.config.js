@@ -6,7 +6,7 @@ import { offline } from './scripts/vite-plugin-offline.mjs'
 // loaded at start-up, so these are left out of it and ride along with the panel that needs them. An icon missing from this
 // list is harmless: it just joins the start-up chunk (the size budget, `npm run size`, is what notices).
 const LAZY_ONLY_ICONS = [
-  'accessibility', 'activity', 'audio-waveform', 'bookmark', 'bookmark-plus', 'chevron-left', 'chevron-right', 'columns-2', 'copy', 'database-backup', 'download', 'file-text', 'folder',
+  'accessibility', 'activity', 'audio-waveform', 'bookmark', 'bookmark-plus', 'bug', 'chevron-left', 'chevron-right', 'columns-2', 'copy', 'database-backup', 'download', 'file-text', 'folder',
   'gauge', 'hard-drive', 'image-plus', 'keyboard', 'list-end', 'list-start', 'locate-fixed', 'moon', 'orbit', 'palette', 'radio',
   'refresh-cw', 'rotate-ccw', 'rotate-cw', 'shield-alert', 'shield-check', 'sliders-vertical', 'undo-2', 'waves',
 ]

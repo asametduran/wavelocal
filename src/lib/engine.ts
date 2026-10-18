@@ -1,5 +1,6 @@
 /** Web Audio DSP engine: two playback decks -> 10-band EQ -> analyser -> master fade -> speakers. */
 import type { DynamicsSettings, EqBand, EqGains, ReverbSettings, SpatialSettings, StereoSettings, ToneSettings } from '../types'
+import { note } from './diagnostics/capture'
 import { bandTypeInfo, graphicBands } from './eq'
 import { DEFAULT_SPATIAL, ORBIT_HORIZON_SECONDS, azimuth, equalPowerMix, orbitAngle, orbitCurve, orbitPosition, orbitRadiusMeters, orbitRadiusPad, padToPosition } from './spatial'
 import type { Point2 } from './spatial'
@@ -116,6 +117,30 @@ function glideTo(param: AudioParam, target: number, t: number, timeConstant = 0.
   param.setTargetAtTime(target, t, timeConstant)
 }
 
+/** Every `<audio>` element an engine has made, so that something outside React can stop the sound when the page has failed. */
+const elements = new Set<HTMLAudioElement>()
+
+/**
+ * Stop all sound for good, and take the player off the lock screen and notification shade. For when the page has failed and nothing is
+ * left to control it. Pausing once is not enough: the player that owned the elements is gone from the screen but its pending work is
+ * not, and a file that was still being checked or decoded would start itself a moment later. So the elements refuse to play again;
+ * only a reload brings the sound back.
+ */
+export function silenceAudio(): void {
+  elements.forEach((el) => {
+    el.pause()
+    el.play = () => Promise.reject(new DOMException('Playback was stopped because the page failed.', 'AbortError'))
+  })
+  try {
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = null
+      navigator.mediaSession.playbackState = 'none'
+    }
+  } catch {
+    // a browser without a media session has nothing to take down
+  }
+}
+
 export class AudioEngine {
   decks: [Deck, Deck]
   ctx: AudioContext | null = null
@@ -160,6 +185,7 @@ export class AudioEngine {
     const makeDeck = (): Deck => {
       const el = new Audio()
       el.preload = 'auto'
+      elements.add(el)
       return { el, node: null, norm: null, gain: null }
     }
     this.decks = [makeDeck(), makeDeck()]
@@ -232,7 +258,8 @@ export class AudioEngine {
       this.applyLimiter()
       if (ctx.state !== 'running') ctx.resume().catch(() => {})
       return true
-    } catch {
+    } catch (error) {
+      note('play')(error) // the audio graph could not be built: the tracks play, without the equalizer and the other effects
       this.ctx = null
       return false
     }

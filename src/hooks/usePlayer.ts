@@ -13,6 +13,9 @@ import { analyzeOnDemand } from '../lib/analyzeOnDemand'
 import { needsUpgrade, upgradeLibrary, upgradePatch } from '../lib/upgrade'
 import type { UpgradePatch } from '../lib/upgrade'
 import { announce } from '../lib/a11y'
+import { PlaybackFaults, mediaFault } from '../lib/faults'
+import { note } from '../lib/diagnostics/capture'
+import { safeStart } from '../lib/safestart'
 import { contextQueue, mergeTrackIds, moveItem, nextAfterRemoval, nextRepeat, pickTrack } from '../lib/queue'
 import { parseSortSpec } from '../lib/sort'
 import type { SortSpec } from '../lib/sort'
@@ -146,11 +149,16 @@ function loadSettings(): Partial<Settings> {
   }
 }
 
+/** What is said when a track could not be played and playback went on without it. */
+const skippedText = (track: Track): string => `Skipped "${track.title}": it could not be played.`
+
 /** Owns the audio engine (two decks, EQ, analyser) plus queue, playlists, persistence and playback state. */
 export function usePlayer(): PlayerApi {
   const [engine] = useState(() => new AudioEngine())
   // decides what each <audio> element is given: the original file, or (for WAV/FLAC the browser cannot play) a decoded copy
   const [resolver] = useState(() => new PlayableResolver({ convert: createWorkerConvert(), element: engine.decks[0].el }))
+  // which sources failed, which tracks cannot be played, and how long the run of failures is (the rules are in `lib/faults.ts`)
+  const [faults] = useState(() => new PlaybackFaults())
   const [saved] = useState(loadSettings)
 
   const [tracks, setTracks] = useState<Track[]>([]) // the whole library
@@ -208,14 +216,12 @@ export function usePlayer(): PlayerApi {
   const awaitingSrc = useRef(false)
   /** Whether the current load should start playing once its source is ready. */
   const playIntent = useRef(false)
-  /** Consecutive tracks that failed to play, so a queue of unplayable files cannot loop forever. */
-  const failStreak = useRef(0)
   /** Decides when listening counts as a play (half the track or 30 s of real listening). */
   const tally = useRef(new PlayTally())
   /** The jump of an A-B loop, scheduled for the moment the playhead reaches its end. */
   const loopTimer = useRef<Timer | null>(null)
-  /** Set after `next` exists; used where `load` has to skip an unplayable track. */
-  const skipUnplayable = useRef<() => void>(() => {})
+  /** Set after `next` exists; used where a track turned out to be unplayable (`announced`: the caller has already said why). */
+  const skipUnplayable = useRef<(track: Track, announced?: boolean) => void>(() => {})
   /** Imports run one after another (so none misses what the one before added); each has its own abort controller. */
   const importChain = useRef<Promise<unknown>>(Promise.resolve())
   const importAborts = useRef(new Set<AbortController>())
@@ -289,6 +295,18 @@ export function usePlayer(): PlayerApi {
       commitUpNext(taken.queue)
     },
     [commitUpNext],
+  )
+
+  /**
+   * A track that could not be played is not chosen again until it is asked for by hand, and it leaves Up Next: it would be passed over
+   * at its turn anyway, and the list would go on showing a track that is never going to play.
+   */
+  const giveUp = useCallback(
+    (id: string) => {
+      faults.markBad(id)
+      if (state.current.upNext.includes(id)) commitUpNext(state.current.upNext.filter((queued) => queued !== id))
+    },
+    [commitUpNext, faults],
   )
 
   const startPlay = useCallback(
@@ -371,6 +389,7 @@ export function usePlayer(): PlayerApi {
   const load = useCallback(
     (track: Track | null | undefined, autoplay = true, at: number | null = null) => {
       if (!track) return
+      faults.forget(track.id) // trying a track is a fresh start for it: a failure may have passed, and if not, it is found out again
       cancelTransition()
       const el = getEl()
       const token = ++loadToken.current
@@ -388,6 +407,7 @@ export function usePlayer(): PlayerApi {
       const src = resolver.urlFor(track)
       if (src) {
         el.src = src
+        faults.attach(active.current, track.id, src)
         applyNorm(active.current, track)
         if (autoplay) startPlay(el)
         return
@@ -404,6 +424,7 @@ export function usePlayer(): PlayerApi {
           if (token !== loadToken.current) return
           awaitingSrc.current = false
           el.src = url
+          faults.attach(deck, track.id, url)
           applyNorm(deck, track)
           if (playIntent.current) startPlay(el) // true if this load autoplays, or the user pressed play while it was pending
         })
@@ -411,11 +432,13 @@ export function usePlayer(): PlayerApi {
           if (token !== loadToken.current) return
           awaitingSrc.current = false
           setDecoding(null)
+          note('decode')(error) // the app's own decoder could not read it either
+          giveUp(track.id)
           notify(`Could not play "${track.title}": ${error instanceof Error ? error.message : 'unsupported audio'}`)
-          if (playIntent.current) skipUnplayable.current()
+          if (playIntent.current) skipUnplayable.current(track, true)
         })
     },
-    [applyNorm, cancelTransition, getEl, notify, resolver, setLoop, startPlay],
+    [applyNorm, cancelTransition, faults, getEl, giveUp, notify, resolver, setLoop, startPlay],
   )
 
   /**
@@ -444,12 +467,13 @@ export function usePlayer(): PlayerApi {
         auto,
         useHistory: dir < 0 && queuedPlaying,
         find: (id) => s.tracks.find((t) => t.id === id),
+        skip: faults.unplayable, // a track that could not be played is not chosen again, so a queue of them ends the chain by itself
       })
       history.current = [...picked.history]
       if (commit) resume.current = null // the track picked is a list track again
       return picked.track
     },
-    [applyTaken],
+    [applyTaken, faults],
   )
 
   /**
@@ -465,6 +489,73 @@ export function usePlayer(): PlayerApi {
       else resume.current = null
     },
     [applyTaken],
+  )
+
+  /**
+   * A deck reported that the source it was given cannot be played: an `error` event, or a `play()` the browser refused for the
+   * file's sake. It counts once per source (`lib/faults.ts`), whichever deck it is and however late the report comes.
+   */
+  const failedSource = useCallback(
+    (deck: DeckIndex) => {
+      const el = engine.decks[deck].el
+      const failure = faults.fail(deck, el.getAttribute('src'))
+      if (failure.kind === 'ignore') return
+      const track = state.current.tracks.find((t) => t.id === failure.trackId)
+      if (!track) return // it was removed meanwhile
+      // Read now, for emptying the deck below clears it. It goes in the error log only when the track is given up on: a lossless file
+      // that the browser cannot play and the app decodes is no failure.
+      const fault = mediaFault(el.error)
+
+      if (deck !== active.current) {
+        // The deck lined up for the next track. That track is not handed over to. A lossless file the browser could not preload may
+        // still be decoded when its turn comes, so it is only left out of the lining up; anything else is skipped for good.
+        faults.markNoPreload(track.id)
+        if (xfade.current.pending?.id === track.id) xfade.current.pending = null
+        faults.detach(deck)
+        el.removeAttribute('src')
+        el.load()
+        const skip = () => {
+          note('play')(fault)
+          giveUp(track.id)
+          notify(skippedText(track))
+        }
+        resolver.isDecodable(track).then((decodable) => {
+          if (!decodable) skip()
+        }, skip)
+        return
+      }
+
+      if (failure.src === track.url) {
+        // the browser rejected the original file; if it is WAV or FLAC, decode it ourselves and try again
+        const token = ++loadToken.current
+        awaitingSrc.current = true
+        resolver
+          .isDecodable(track)
+          .then((ok) => {
+            if (!ok) throw new AudioDecodeError('not a WAV or FLAC file', 'unsupported')
+            return resolver.forceDecode(track)
+          })
+          .then((url) => {
+            if (token !== loadToken.current) return
+            awaitingSrc.current = false
+            el.src = url
+            faults.attach(deck, track.id, url)
+            if (playIntent.current) startPlay(el)
+          })
+          .catch((error: unknown) => {
+            if (token !== loadToken.current) return
+            awaitingSrc.current = false
+            note('play')(fault)
+            // a file that is neither WAV nor FLAC has only the browser's verdict, which is logged above
+            if (!(error instanceof AudioDecodeError && error.code === 'unsupported')) note('decode')(error)
+            skipUnplayable.current(track)
+          })
+        return
+      }
+      note('play')(fault)
+      skipUnplayable.current(track)
+    },
+    [engine, faults, giveUp, notify, resolver, startPlay],
   )
 
   /** Start the next track on the idle deck (overlapping for crossfade, immediate for gapless). */
@@ -492,11 +583,14 @@ export function usePlayer(): PlayerApi {
         return
       }
       takePick(nextT)
-      if (inEl.getAttribute('src') !== nextSrc) inEl.src = nextSrc
+      if (inEl.getAttribute('src') !== nextSrc) {
+        inEl.src = nextSrc
+        faults.attach(nxt, nextT.id, nextSrc)
+      }
       applyNorm(nxt, nextT)
       inEl.currentTime = 0
       if (hasCtx) engine.setGain(nxt, secs ? 0 : 1)
-      inEl.play().catch(() => {})
+      inEl.play().catch(() => {}) // a file that cannot be played is reported by the deck's `error` event (see `failedSource`)
       if (secs) {
         engine.ramp(nxt, 1, secs)
         engine.ramp(cur, 0, secs)
@@ -519,7 +613,7 @@ export function usePlayer(): PlayerApi {
         (secs || 0.05) * 1000 + 150,
       )
     },
-    [engine, pickNext, takePick, applyNorm, resolver],
+    [engine, pickNext, takePick, applyNorm, resolver, faults],
   )
 
   const next = useCallback(
@@ -538,13 +632,25 @@ export function usePlayer(): PlayerApi {
     [cancelTransition, getEl, load, pickNext],
   )
 
-  skipUnplayable.current = () => {
-    if (++failStreak.current > Math.max(1, state.current.playQueue.length)) {
-      failStreak.current = 0
-      notify('None of the next tracks could be played')
+  skipUnplayable.current = (track, announced = false) => {
+    giveUp(track.id)
+    const streak = faults.noteFailure()
+    // the first track of a run is named; the run is counted when a track can be read again (see `onMeta`)
+    if (streak === 1 && !announced) notify(skippedText(track))
+    // every track that fails is given up on, so each failure leaves fewer to go on with: the chain of failures ends by itself
+    const following = pickNext(1, true)
+    if (!following) {
+      // nothing is left to go on with: stop, whatever repeat and shuffle say, and say so once when it is because nothing can be played
+      faults.progress()
+      if (!state.current.playQueue.some((t) => !faults.isUnplayable(t.id))) notify('None of the next tracks could be played')
+      cancelTransition()
+      playIntent.current = false
+      setPlaying(false)
+      getEl().pause()
       return
     }
-    next(true)
+    if (state.current.currentId) history.current.push(state.current.currentId)
+    load(following, playIntent.current)
   }
 
   const prev = useCallback(() => {
@@ -565,14 +671,16 @@ export function usePlayer(): PlayerApi {
       setContext(null)
       resume.current = null
       state.current.playQueue = state.current.queue
-      if (id === state.current.currentId) {
+      // asked for by hand: a track that could not be played is loaded again, not just started
+      const again = faults.isUnplayable(id)
+      if (id === state.current.currentId && !again) {
         startPlay(getEl())
         return
       }
-      if (state.current.currentId) history.current.push(state.current.currentId)
+      if (state.current.currentId && id !== state.current.currentId) history.current.push(state.current.currentId)
       load(t)
     },
-    [getEl, load, startPlay],
+    [faults, getEl, load, startPlay],
   )
 
   const playFrom = useCallback(
@@ -585,16 +693,17 @@ export function usePlayer(): PlayerApi {
       resume.current = null
       setContext(list.map((t) => t.id))
       state.current.playQueue = list // usable at once: the next render would be too late for a track that fails to start
-      if (start.id === state.current.currentId) {
+      const again = faults.isUnplayable(start.id) // asked for by hand: loaded again, as `play` does
+      if (start.id === state.current.currentId && !again) {
         const el = getEl()
         if (!startId) el.currentTime = 0 // "Play" on a page whose first track is already playing starts it over
         startPlay(el)
         return
       }
-      if (state.current.currentId) history.current.push(state.current.currentId)
+      if (state.current.currentId && start.id !== state.current.currentId) history.current.push(state.current.currentId)
       load(start)
     },
-    [getEl, load, startPlay],
+    [faults, getEl, load, startPlay],
   )
 
   const toggle = useCallback(() => {
@@ -606,9 +715,18 @@ export function usePlayer(): PlayerApi {
       return
     }
     const el = getEl()
-    if (el.paused) startPlay(el)
-    else el.pause()
-  }, [getEl, load, pickNext, startPlay])
+    if (!el.paused) {
+      el.pause()
+      return
+    }
+    const current = state.current.tracks.find((t) => t.id === state.current.currentId)
+    if (current && faults.isUnplayable(current.id)) {
+      // it could not be played before: asked for again, it is loaded again (a new source for the deck)
+      load(current)
+      return
+    }
+    startPlay(el)
+  }, [faults, getEl, load, pickNext, startPlay])
 
   const seek = useCallback(
     (t: number) => {
@@ -819,7 +937,7 @@ export function usePlayer(): PlayerApi {
           })
           const head = added[0]
           if (wasEmpty && head && !state.current.currentId) load(head, false)
-          resolveNow().catch(() => {}) // files that a restored backup was waiting for may have just arrived
+          resolveNow().catch(note('library')) // files that a restored backup was waiting for may have just arrived
         },
       })
       if (epoch !== libraryEpoch.current) return 0
@@ -898,10 +1016,11 @@ export function usePlayer(): PlayerApi {
       commitUpNext(s.upNext.filter((x) => x !== id))
       setTrackEq((m) => (m[id] ? Object.fromEntries(Object.entries(m).filter(([key]) => key !== id)) : m))
       resolver.release(id)
+      faults.forget(id)
       revokeTrack(t)
       removeTrack(id)
     },
-    [cancelTransition, commitUpNext, getEl, load, resolver],
+    [cancelTransition, commitUpNext, faults, getEl, load, resolver],
   )
 
   /** In the library this deletes the track; inside a playlist it only takes the track out of that playlist. */
@@ -1193,6 +1312,7 @@ export function usePlayer(): PlayerApi {
         if (!alive) return
         if (!result.ok) {
           // Nothing may be written over what could not be read: this window plays and browses, and the person is told.
+          note('library')(result.error)
           writeGate.memory(result.reason)
           return
         }
@@ -1203,7 +1323,8 @@ export function usePlayer(): PlayerApi {
           state.current.tracks = [...restored, ...state.current.tracks]
           setTracks((l) => [...restored, ...l])
           if (!state.current.currentId) {
-            const resume = library.resume
+            // "Start fresh" leaves out where the last session was: of all that is saved, it is the likeliest cause of a crash at every start
+            const resume = safeStart ? null : library.resume
             const start = restored.find((t) => t.id === resume?.id) || first
             load(start, false, resume && resume.id === start.id && resume.time > 1 ? resume.time : null)
           }
@@ -1211,16 +1332,22 @@ export function usePlayer(): PlayerApi {
         // a playlist made while the library was being read is kept, after the saved ones
         setPlaylists((made) => [...library.playlists, ...made.filter((p) => !library.playlists.some((saved) => saved.id === p.id))])
         setTrackEq(library.trackEq)
-        // what was queued by hand before the restart is still queued (whatever was imported meanwhile is added after it)
-        commitUpNext(keepKnown([...library.upNext, ...state.current.upNext], () => true))
+        // what was queued by hand before the restart is still queued (whatever was imported meanwhile is added after it), unless the
+        // person asked to start fresh. A restored backup that is still waiting for its files is never forgotten that way: it is theirs.
+        commitUpNext(keepKnown([...(safeStart ? [] : library.upNext), ...state.current.upNext], () => true))
         const waiting = library.pending ? (await loadBackup()).normalizePending(library.pending) : null
         pendingRef.current = waiting
         setPendingRestore(waiting)
         const damaged = library.skippedRows + library.skippedPlaylists
-        if (damaged > 0) notify(`${countLabel(damaged, 'damaged item')} in your saved library could not be read and ${damaged === 1 ? 'was' : 'were'} left out.`)
+        if (damaged > 0) {
+          // a count and no names: what is damaged is not known to be anyone's file
+          note('library')({ name: 'LibraryDamaged', message: `${countLabel(library.skippedRows, 'damaged track')} and ${countLabel(library.skippedPlaylists, 'damaged playlist')} in the saved library were left out` })
+          notify(`${countLabel(damaged, 'damaged item')} in your saved library could not be read and ${damaged === 1 ? 'was' : 'were'} left out.`)
+        }
         writeGate.open()
-      } catch {
+      } catch (error) {
         // anything unforeseen: do not write what was never read
+        note('library')(error)
         writeGate.memory('unreadable')
       } finally {
         if (alive) setHydrated(true)
@@ -1291,7 +1418,7 @@ export function usePlayer(): PlayerApi {
   }, [hydrated, upNext])
   // a restore that was left waiting last session may be satisfiable now (files were added while it was not loaded)
   useEffect(() => {
-    if (hydrated) resolveNow().catch(() => {})
+    if (hydrated) resolveNow().catch(note('library'))
   }, [hydrated, resolveNow])
   useEffect(() => {
     if (viewId !== 'all' && !isSmartId(viewId) && !playlists.some((p) => p.id === viewId)) setViewId('all')
@@ -1313,8 +1440,8 @@ export function usePlayer(): PlayerApi {
     const settings: Settings = { volume, muted, repeat, shuffle, transition, eqBands: globalBands, eqPresets, eqOn, speed, preservePitch, normalize, spatial, reverb, dynamics, stereo, tone, sort }
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
-    } catch {
-      /* ignore */
+    } catch (error) {
+      note('save')(error) // the settings are not remembered until there is room again
     }
   }, [volume, muted, repeat, shuffle, transition, globalBands, eqPresets, eqOn, speed, preservePitch, normalize, spatial, reverb, dynamics, stereo, tone, sort])
 
@@ -1340,7 +1467,7 @@ export function usePlayer(): PlayerApi {
       const remaining = el.duration - el.currentTime
       if (remaining <= 15 && !x.pending) {
         const n = pickNext(1, true, false) // looking ahead: the queue is not used up until the track really starts
-        if (n) {
+        if (n && faults.canPreload(n.id)) {
           x.pending = n
           const idle = otherDeck(active.current)
           const o = engine.decks[idle].el
@@ -1349,6 +1476,7 @@ export function usePlayer(): PlayerApi {
           if (preloadSrc) {
             if (o.getAttribute('src') !== preloadSrc) {
               o.src = preloadSrc
+              faults.attach(idle, n.id, preloadSrc)
               o.load()
             }
           } else {
@@ -1358,6 +1486,7 @@ export function usePlayer(): PlayerApi {
               .then((url) => {
                 if (x.pending?.id === n.id && o.getAttribute('src') !== url) {
                   o.src = url
+                  faults.attach(idle, n.id, url)
                   o.load()
                 }
               })
@@ -1382,6 +1511,12 @@ export function usePlayer(): PlayerApi {
       const el = getEl()
       const d = el.duration
       setDuration(Number.isFinite(d) ? d : 0)
+      if (Number.isFinite(d) && d > 0) {
+        // the file can be read: the run of tracks that could not be played ends here, and is counted. A track that is only being made
+        // ready, not played, ends it too; one that can be read but not decoded ends it as well, and is named like a new run's first.
+        const skipped = faults.progress()
+        if (skipped > 1) notify(`Skipped ${skipped} tracks that could not be played.`)
+      }
       if (pendingSeek.current != null && Number.isFinite(d)) {
         el.currentTime = Math.min(pendingSeek.current, d)
         pendingSeek.current = null
@@ -1400,7 +1535,6 @@ export function usePlayer(): PlayerApi {
     }
     const onPlay = (e: Event) => {
       if (!isActive(e)) return
-      failStreak.current = 0
       setPlaying(true)
     }
     const onPause = (e: Event) => {
@@ -1429,36 +1563,10 @@ export function usePlayer(): PlayerApi {
         startPlay(el)
       } else next(true)
     }
+    // either deck: the one that is not playing may have been lined up with a file that cannot be played (see `failedSource`)
     const onErr = (e: Event) => {
-      if (!isActive(e)) return
-      const el = getEl()
-      const src = el.getAttribute('src')
-      if (!src) return
-      const current = state.current.tracks.find((t) => t.id === state.current.currentId)
-      if (current && src === current.url) {
-        // the browser rejected the original file; if it is WAV or FLAC, decode it ourselves and try again
-        const token = ++loadToken.current
-        awaitingSrc.current = true
-        resolver
-          .isDecodable(current)
-          .then((ok) => {
-            if (!ok) throw new AudioDecodeError('not a WAV or FLAC file', 'unsupported')
-            return resolver.forceDecode(current)
-          })
-          .then((url) => {
-            if (token !== loadToken.current) return
-            awaitingSrc.current = false
-            el.src = url
-            if (playIntent.current) startPlay(el)
-          })
-          .catch(() => {
-            if (token !== loadToken.current) return
-            awaitingSrc.current = false
-            skipUnplayable.current()
-          })
-        return
-      }
-      skipUnplayable.current()
+      const deck = engine.decks.findIndex((d) => d.el === e.target)
+      if (deck === 0 || deck === 1) failedSource(deck)
     }
     const bound = engine.decks.map((d) => {
       const el = d.el
@@ -1482,7 +1590,7 @@ export function usePlayer(): PlayerApi {
         el.removeEventListener('error', onErr)
       })
     }
-  }, [engine, getEl, next, pickNext, beginTransition, saveResume, startPlay, applyNorm, resolver, recordPlay, stepLoop])
+  }, [engine, faults, failedSource, getEl, next, notify, pickNext, beginTransition, saveResume, startPlay, applyNorm, resolver, recordPlay, stepLoop])
 
   // toggling normalization re-applies (or clears) the gain on the active deck
   useEffect(() => {
