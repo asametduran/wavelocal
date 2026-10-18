@@ -1,18 +1,11 @@
 import { seededRandom } from '../dsp'
+import { AudioDecodeError } from './errors'
 
 /** One block of decoded audio: a Float32Array per channel (equal lengths), samples in [-1, 1). */
 export type PcmChunk = Float32Array[]
 
-/** Why decoding failed: the format is not handled, the data is damaged, or it ends early. */
-export class AudioDecodeError extends Error {
-  constructor(
-    message: string,
-    readonly code: 'unsupported' | 'corrupt' | 'truncated' | 'aborted',
-  ) {
-    super(message)
-    this.name = 'AudioDecodeError'
-  }
-}
+// The class lives in `errors.ts` (the start-up code needs it without all of this); the decoders keep importing it from here.
+export { AudioDecodeError }
 
 const SQRT1_2 = Math.SQRT1_2
 

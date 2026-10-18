@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import { AudioDecodeError as ErrorOfErrors } from './errors'
 import { AudioDecodeError, Pcm16Encoder, downmixToStereo, wavHeader } from './pcm'
 import type { PcmChunk } from './pcm'
+
+describe('AudioDecodeError', () => {
+  it('is one class however it is imported: the start-up code takes it from its own small module, the decoders through pcm', () => {
+    expect(AudioDecodeError).toBe(ErrorOfErrors)
+    const error = new AudioDecodeError('Decoding was cancelled', 'aborted')
+    expect(error).toBeInstanceOf(ErrorOfErrors)
+    expect(error).toMatchObject({ name: 'AudioDecodeError', code: 'aborted', message: 'Decoding was cancelled' })
+  })
+})
 
 const readWav = async (blob: Blob) => {
   const bytes = new Uint8Array(await blob.arrayBuffer())

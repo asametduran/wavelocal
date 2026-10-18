@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { encodeFlac } from '../../test-utils/flac-encoder'
 import { encodeWav } from '../../test-utils/wav'
+import { mightBeLossless as guessOfLossless } from './lossless'
 import { browserPlaysContainer, mightBeLossless, needsDecoder, sniffBlob, sniffContainer, wavNeedsDecoder } from './sniff'
+
+describe('mightBeLossless', () => {
+  it('is one function however it is imported: the resolver takes it from its own small module, the sniffing code re-exports it', () => {
+    expect(mightBeLossless).toBe(guessOfLossless)
+  })
+})
 
 const flac = () => encodeFlac([Int32Array.from({ length: 2000 }, (_, i) => Math.round(Math.sin(i / 10) * 8000))], { sampleRate: 44100, bitsPerSample: 16 })
 const wav = (format: 'pcm16' | 'pcm24' | 'float32' = 'pcm16') => encodeWav([Float32Array.from({ length: 1000 }, (_, i) => Math.sin(i / 8) * 0.5)], { format })

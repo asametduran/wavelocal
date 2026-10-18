@@ -1,14 +1,13 @@
 import type { MetaValues, TrackRecord } from '../types'
-import { open } from './idb'
+import { transaction } from './idb'
 import { normalizeMeta } from './trackmeta'
 
 /** Tiny IndexedDB wrapper: `tracks` (audio blobs + metadata) and `meta` (order, playlists, resume point). The connection is `idb.ts`. */
 
 function run<T = undefined>(store: 'tracks' | 'meta', mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest | void): Promise<T> {
-  return open().then(
-    (db) =>
+  return transaction(store, mode).then(
+    (t) =>
       new Promise<T>((resolve, reject) => {
-        const t = db.transaction(store, mode)
         const req = fn(t.objectStore(store))
         t.oncomplete = () => resolve((req ? req.result : undefined) as T)
         t.onerror = () => reject(t.error)
@@ -45,10 +44,9 @@ export const putTracks = (tracks: TrackRecord[]): Promise<void> =>
  * part of the app saved in between, and a record that has been removed since stays removed.
  */
 export const patchTracks = (patches: ReadonlyMap<string, Partial<TrackRecord>>): Promise<void> =>
-  open().then(
-    (db) =>
+  transaction('tracks', 'readwrite').then(
+    (t) =>
       new Promise<void>((resolve, reject) => {
-        const t = db.transaction('tracks', 'readwrite')
         const store = t.objectStore('tracks')
         for (const [id, patch] of patches) {
           const req = store.get(id)

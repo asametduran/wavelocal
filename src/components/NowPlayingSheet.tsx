@@ -2,9 +2,8 @@ import { useId, useRef, useState } from 'react'
 import { ChevronDown, ListMusic, SlidersHorizontal } from 'lucide-react'
 import Cover from './Cover'
 import FormatBadge from './FormatBadge'
-import Lyrics from './Lyrics'
 import Visualizer from './Visualizer'
-import { StageTabs, UpNextStage } from './NowPlaying'
+import { LazyLyrics, StageTabs, UpNextStage } from './NowPlaying'
 import type { StageTab } from './NowPlaying'
 import type { PlayerApi } from '../types'
 import { Transport } from './PlayerBar'
@@ -88,7 +87,7 @@ export default function NowPlayingSheet({ p, open, onClose, onOpenQueue, onOpenT
             <div className="truncate text-sm font-semibold">{current?.title}</div>
             <div className="truncate text-xs text-zinc-400">{current?.artist}</div>
           </div>
-          <Lyrics track={current} time={p.time} onSeek={p.seek} onLoad={p.attachLrc} className="min-h-0 flex-1" />
+          <LazyLyrics track={current} time={p.time} onSeek={p.seek} onLoad={p.attachLrc} className="min-h-0 flex-1" />
         </div>
       )}
 

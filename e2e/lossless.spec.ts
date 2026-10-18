@@ -200,7 +200,8 @@ test.describe('lossless playback: the browser claims support but fails', () => {
     const garbage = (name: string): Upload => ({ name, mimeType: 'audio/flac', buffer: Buffer.from('nothing to hear here '.repeat(30)) })
     await app.importFiles(garbage('a-bad.flac'), garbage('b-bad.flac'))
     await app.key('r') // repeat all: the only thing that could make it loop
-    await app.play('a-bad').catch(() => undefined)
+    // nothing here can ever start, so there is no "Pause" to wait for: `app.play` waits for one for 8 s, longer than the notice stays up
+    await app.row('a-bad').locator('button[aria-current]').click()
     await expect(app.page.getByText('None of the next tracks could be played')).toBeVisible({ timeout: 15_000 })
     await app.expectPaused()
   })

@@ -1,3 +1,5 @@
+import { NotSavingError } from './persist/gate'
+
 /**
  * Storage the app uses on this device: how much, how much is left, whether the browser may take it back, which tracks
  * cost the most, and what to say when it runs short. The audio of the library is copied into the browser's own database
@@ -120,6 +122,7 @@ export function isQuotaError(error: unknown): boolean {
 
 /** What to tell a listener whose save failed: out of space gets its own advice, anything else the `fallback` text. */
 export function describeSaveFailure(error: unknown, fallback: string): string {
+  if (error instanceof NotSavingError) return error.message // the window itself is not saving: the storage is not to blame
   return isQuotaError(error) ? 'This device is out of storage space. Remove tracks you no longer need (Sound & tools, Storage) or free up space, then try again.' : fallback
 }
 

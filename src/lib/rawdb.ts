@@ -1,4 +1,4 @@
-import { open } from './idb'
+import { transaction } from './idb'
 
 /**
  * The few operations the derived-data caches (waveforms, chapters, listening state) need from the app's database. They live
@@ -15,10 +15,9 @@ export interface KeyValue {
 }
 
 function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  return open().then(
-    (db) =>
+  return transaction('meta', mode).then(
+    (t) =>
       new Promise<T>((resolve, reject) => {
-        const t = db.transaction('meta', mode)
         const request = fn(t.objectStore('meta'))
         t.oncomplete = () => resolve(request.result)
         t.onerror = () => reject(t.error)

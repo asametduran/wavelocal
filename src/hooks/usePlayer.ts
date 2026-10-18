@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AudioEngine, EQ_PRESETS } from '../lib/engine'
-import * as db from '../lib/db'
+import { getAllTracks, getMeta, toRecord } from '../lib/db'
+import type { LibraryReader } from '../lib/persist/load'
+import { normalizeMeta } from '../lib/trackmeta'
+import { claimWindow, writeGate } from '../lib/persist/gate'
+import { clearTracks, patchTracks, removeTrack, saveMeta, saveTracks } from '../lib/persist/write'
+import { countLabel } from '../lib/format'
 import { estimateGainDb } from '../lib/loudness'
 import { buildTrack, isAudioFile, lrcFromFile, norm, revokeTrack } from '../lib/metadata'
 import { importFiles } from '../lib/importer'
@@ -26,12 +31,15 @@ import { isSmartId, smartList, smartTracks } from '../lib/smart'
 import { applyTagEdit } from '../lib/tags'
 import type { TagEdit } from '../lib/tags'
 import { PlayableResolver, createWorkerConvert } from '../lib/audio/playable'
-import { AudioDecodeError } from '../lib/audio/pcm'
+import { AudioDecodeError } from '../lib/audio/errors'
 import { mergeSpatial, normalizeSpatial } from '../lib/spatial'
-import { addBand, bandsFromSettings, deletePreset, findPreset, graphicBands, normalizePresets, normalizeTrackEq, removeBand, savePreset, updateBand } from '../lib/eq'
+import { addBand, bandsFromSettings, deletePreset, findPreset, graphicBands, normalizePresets, removeBand, savePreset, updateBand } from '../lib/eq'
 import { mergeReverb, normalizeReverb } from '../lib/reverb'
 import { mergeDynamics, mergeStereo, mergeTone, normalizeDynamics, normalizeStereo, normalizeTone } from '../lib/dynamics'
-import type { DynamicsPatch, DynamicsSettings, EqBand, EqPreset, ImportProgress, Lyrics, PlayFromOptions, PlayerApi, Playlist, RepeatMode, ReverbSettings, Settings, SpatialSettings, StereoSettings, TagEditOutcome, ToneSettings, Track, TransitionMode, UpgradeProgress } from '../types'
+import type { DynamicsPatch, DynamicsSettings, EqBand, EqPreset, ImportProgress, Lyrics, MetaValues, PlayFromOptions, PlayerApi, Playlist, RepeatMode, ReverbSettings, Settings, SpatialSettings, StereoSettings, TagEditOutcome, ToneSettings, Track, TransitionMode, UpgradeProgress } from '../types'
+
+/** The saved library as the loader reads it: the tracks, and the values of `meta`. */
+const savedLibrary: LibraryReader = { rows: getAllTracks, meta: (key) => getMeta(key as keyof MetaValues) }
 
 // Backups are rare: the code that makes, reads and restores them is only fetched when one is needed.
 const loadBackup = () => import('../lib/backup')
@@ -353,7 +361,7 @@ export function usePlayer(): PlayerApi {
       estimateGainDb(track.file).then((g) => {
         setTracks((l) => l.map((t) => (t.id === track.id ? { ...t, gainDb: g } : t)))
         const latest = state.current.tracks.find((t) => t.id === track.id) || track
-        db.putTracks([{ ...latest, gainDb: g }]).catch(() => {})
+        saveTracks([{ ...latest, gainDb: g }], { quiet: true }).catch(() => {})
         if (state.current.normalize && engine.decks[deckIdx].el.getAttribute('src') === track.url) engine.setNorm(deckIdx, 10 ** (g / 20))
       })
     },
@@ -627,7 +635,7 @@ export function usePlayer(): PlayerApi {
     if (!latest) return
     const stamp = { plays: (latest.plays || 0) + 1, lastPlayedAt: Date.now() }
     setTracks((l) => l.map((t) => (t.id === id ? { ...t, ...stamp } : t)))
-    db.putTracks([{ ...latest, ...stamp }]).catch(() => {})
+    saveTracks([{ ...latest, ...stamp }], { quiet: true }).catch(() => {})
   }, [])
 
   // ---- backup and restore ----
@@ -641,14 +649,14 @@ export function usePlayer(): PlayerApi {
         if (!patch) return t
         // the track being played keeps its object (and the URLs its audio element is using); the others are rebuilt
         // from their plain record so a restore of thousands of tracks does not mint thousands of object URLs
-        const updated = t.id === s.currentId ? { ...t, ...patch } : buildTrack({ ...db.toRecord(t), ...patch })
+        const updated = t.id === s.currentId ? { ...t, ...patch } : buildTrack({ ...toRecord(t), ...patch })
         if (t.id !== s.currentId) revokeTrack(t)
         changed.push(updated)
         return updated
       })
       s.tracks = next
       setTracks(next)
-      db.putTracks(changed).catch((error: unknown) => void saveFailureText(error, 'Could not save the restored data (storage blocked or full)').then(notify))
+      saveTracks(changed).catch((error: unknown) => void saveFailureText(error, 'Could not save the restored data (storage blocked or full)').then(notify))
     }
     setPlaylists(r.playlists)
     setTrackEq(r.trackEq)
@@ -694,7 +702,7 @@ export function usePlayer(): PlayerApi {
     const cleared = state.current.tracks.filter((t) => t.plays || t.lastPlayedAt)
     if (!cleared.length) return
     setTracks((l) => l.map((t) => (t.plays || t.lastPlayedAt ? { ...t, plays: 0, lastPlayedAt: null } : t)))
-    db.putTracks(cleared.map((t) => ({ ...t, plays: 0, lastPlayedAt: null }))).catch((error: unknown) => void saveFailureText(error, 'Could not save the reset (storage blocked or full)').then(notify))
+    saveTracks(cleared.map((t) => ({ ...t, plays: 0, lastPlayedAt: null }))).catch((error: unknown) => void saveFailureText(error, 'Could not save the reset (storage blocked or full)').then(notify))
   }, [notify])
 
   const setVolume = useCallback((v: number) => {
@@ -718,7 +726,7 @@ export function usePlayer(): PlayerApi {
   const updateLyrics = useCallback((id: string, lyrics: Lyrics | null) => {
     setTracks((l) => l.map((t) => (t.id === id ? { ...t, lyrics } : t)))
     const t = state.current.tracks.find((x) => x.id === id)
-    if (t) db.putTracks([{ ...t, lyrics }]).catch(() => {})
+    if (t) saveTracks([{ ...t, lyrics }]).catch(() => {})
   }, [])
 
   const attachLrc = useCallback(
@@ -757,7 +765,7 @@ export function usePlayer(): PlayerApi {
       cover,
     }
     try {
-      await db.putTracks([updated])
+      await saveTracks([updated])
     } catch (error) {
       if (res.coverChanged && cover) URL.revokeObjectURL(cover)
       return { ok: false, error: await saveFailureText(error, 'Could not save to the offline library (storage blocked or full)') }
@@ -803,7 +811,7 @@ export function usePlayer(): PlayerApi {
             setViewId('all')
             navigator.storage?.persist?.().catch?.(() => {})
           }
-          db.putTracks(added).catch((error: unknown) => {
+          saveTracks(added).catch((error: unknown) => {
             if (saveFailed) return
             saveFailed = true
             void saveFailureText(error, 'Could not save to the offline library (storage blocked or full)').then(notify)
@@ -891,7 +899,7 @@ export function usePlayer(): PlayerApi {
       setTrackEq((m) => (m[id] ? Object.fromEntries(Object.entries(m).filter(([key]) => key !== id)) : m))
       resolver.release(id)
       revokeTrack(t)
-      db.deleteTrack(id).catch(() => {})
+      removeTrack(id)
     },
     [cancelTransition, commitUpNext, getEl, load, resolver],
   )
@@ -930,8 +938,8 @@ export function usePlayer(): PlayerApi {
     setTime(0)
     setDuration(0)
     setTrackEq({})
-    db.clearTracks().catch(() => {})
-    db.setMeta('resume', null).catch(() => {})
+    clearTracks(() => state.current.tracks.length === 0) // a retry must not wipe what is imported after this
+    saveMeta('resume', null, { quiet: true })
     setLoop(null)
   }, [cancelTransition, commitUpNext, engine, resolver, setLoop])
 
@@ -1171,47 +1179,49 @@ export function usePlayer(): PlayerApi {
   const saveResume = useCallback(() => {
     const id = state.current.currentId
     if (!id || !state.current.hydrated || awaitingSrc.current) return
-    db.setMeta('resume', { id, time: getEl().currentTime || 0 }).catch(() => {})
+    saveMeta('resume', { id, time: getEl().currentTime || 0 }, { quiet: true })
   }, [getEl])
 
   useEffect(() => {
     let alive = true
     ;(async () => {
       try {
-        const [rows, order, pls, resume, storedTrackEq, storedPending, storedUpNext] = await Promise.all([db.getAllTracks(), db.getMeta('order'), db.getMeta('playlists'), db.getMeta('resume'), db.getMeta('trackEq'), db.getMeta('pendingRestore'), db.getMeta('upNext')])
+        // This window claims the library first, so nothing is read that another window is still changing; the code that reads and
+        // checks the saved library is fetched meanwhile (see `lib/persist`).
+        const [{ loadLibrary }] = await Promise.all([import('../lib/persist/load'), claimWindow()])
+        const result = await loadLibrary(normalizeMeta, savedLibrary)
         if (!alive) return
-        const ids = Array.isArray(order) ? order : []
-        const byId = new Map(rows.map((r) => [r.id, r]))
-        const inOrder = new Set(ids) // one lookup per row instead of a scan of the whole order list for each
-        const ordered = [
-          ...ids.flatMap((i) => {
-            const r = byId.get(i)
-            return r ? [r] : []
-          }),
-          ...rows.filter((r) => !inOrder.has(r.id)),
-        ]
-        const restored = ordered.map((rec) => buildTrack(rec))
+        if (!result.ok) {
+          // Nothing may be written over what could not be read: this window plays and browses, and the person is told.
+          writeGate.memory(result.reason)
+          return
+        }
+        const { library } = result
+        const restored = library.records.map((rec) => buildTrack(rec))
         const first = restored[0]
         if (first) {
           state.current.tracks = [...restored, ...state.current.tracks]
           setTracks((l) => [...restored, ...l])
           if (!state.current.currentId) {
+            const resume = library.resume
             const start = restored.find((t) => t.id === resume?.id) || first
             load(start, false, resume && resume.id === start.id && resume.time > 1 ? resume.time : null)
           }
         }
-        if (Array.isArray(pls)) setPlaylists(pls)
-        const remembered = normalizeTrackEq(storedTrackEq)
-        const known = new Set(rows.map((r) => r.id))
-        setTrackEq(Object.fromEntries(Object.entries(remembered).filter(([id]) => known.has(id))))
+        // a playlist made while the library was being read is kept, after the saved ones
+        setPlaylists((made) => [...library.playlists, ...made.filter((p) => !library.playlists.some((saved) => saved.id === p.id))])
+        setTrackEq(library.trackEq)
         // what was queued by hand before the restart is still queued (whatever was imported meanwhile is added after it)
-        const queued = keepKnown(storedUpNext, (id) => known.has(id))
-        commitUpNext(keepKnown([...queued, ...state.current.upNext], () => true))
-        const waiting = storedPending ? (await loadBackup()).normalizePending(storedPending) : null
+        commitUpNext(keepKnown([...library.upNext, ...state.current.upNext], () => true))
+        const waiting = library.pending ? (await loadBackup()).normalizePending(library.pending) : null
         pendingRef.current = waiting
         setPendingRestore(waiting)
+        const damaged = library.skippedRows + library.skippedPlaylists
+        if (damaged > 0) notify(`${countLabel(damaged, 'damaged item')} in your saved library could not be read and ${damaged === 1 ? 'was' : 'were'} left out.`)
+        writeGate.open()
       } catch {
-        /* no persistent storage available: run in-memory */
+        // anything unforeseen: do not write what was never read
+        writeGate.memory('unreadable')
       } finally {
         if (alive) setHydrated(true)
       }
@@ -1219,7 +1229,7 @@ export function usePlayer(): PlayerApi {
     return () => {
       alive = false
     }
-  }, [load, commitUpNext])
+  }, [load, commitUpNext, notify])
 
   // A library stored before durations, track numbers, genres and formats were read is brought up to date quietly in the
   // background, from the audio copies it already holds. The progress lives in the records (`indexed`), so a restart
@@ -1252,10 +1262,10 @@ export function usePlayer(): PlayerApi {
           setTracks((l) =>
             l.map((t) => {
               const patch = patches.get(t.id)
-              return patch ? buildTrack({ ...db.toRecord(t), ...patch }, t) : t
+              return patch ? buildTrack({ ...toRecord(t), ...patch }, t) : t
             }),
           )
-          return db.patchTracks(patches).catch(() => {})
+          return patchTracks(patches, { quiet: true }).catch(() => {})
         },
       },
     ).finally(() => setUpgradeProgress(null))
@@ -1265,19 +1275,19 @@ export function usePlayer(): PlayerApi {
   // the player re-renders several times a second: the id list is rebuilt only when the library itself changes
   const orderKey = useMemo(() => tracks.map((t) => t.id).join(','), [tracks])
   useEffect(() => {
-    if (hydrated) db.setMeta('order', tracks.map((t) => t.id)).catch(() => {})
+    if (hydrated) saveMeta('order', tracks.map((t) => t.id))
   }, [hydrated, orderKey]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (hydrated) db.setMeta('playlists', playlists).catch(() => {})
+    if (hydrated) saveMeta('playlists', playlists)
   }, [hydrated, playlists])
   useEffect(() => {
-    if (hydrated) db.setMeta('trackEq', trackEq).catch(() => {})
+    if (hydrated) saveMeta('trackEq', trackEq)
   }, [hydrated, trackEq])
   useEffect(() => {
-    if (hydrated) db.setMeta('pendingRestore', pendingRestore).catch(() => {})
+    if (hydrated) saveMeta('pendingRestore', pendingRestore)
   }, [hydrated, pendingRestore])
   useEffect(() => {
-    if (hydrated) db.setMeta('upNext', [...upNext]).catch(() => {})
+    if (hydrated) saveMeta('upNext', [...upNext])
   }, [hydrated, upNext])
   // a restore that was left waiting last session may be satisfiable now (files were added while it was not loaded)
   useEffect(() => {
@@ -1384,7 +1394,7 @@ export function usePlayer(): PlayerApi {
         const known = state.current.tracks.find((t) => t.id === id)
         if (known && Math.abs((known.duration || 0) - d) > 0.5) {
           setTracks((l) => l.map((t) => (t.id === id ? { ...t, duration: d } : t)))
-          db.patchTracks(new Map([[id, { duration: d }]])).catch(() => {})
+          patchTracks(new Map([[id, { duration: d }]]), { quiet: true }).catch(() => {})
         }
       }
     }

@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest'
+import { NotSavingError } from './persist/gate'
 import {
   assessStorage,
   breakdown,
@@ -171,6 +172,11 @@ describe('isQuotaError and describeSaveFailure', () => {
 
   it('keeps the specific text for any other failure', () => {
     expect(describeSaveFailure(new Error('blocked'), 'Could not save the reset')).toBe('Could not save the reset')
+  })
+
+  it('says that a window which is not saving is not saving, in the words of the window, rather than blaming the storage', () => {
+    expect(describeSaveFailure(new NotSavingError('memory'), 'Could not save the reset')).toBe('Wavelocal is not saving in this window, so this change is lost when the window closes.')
+    expect(describeSaveFailure(new NotSavingError('taken'), 'Could not save the reset')).toBe('Another window of Wavelocal has taken over the library, so this change is not saved.')
   })
 })
 

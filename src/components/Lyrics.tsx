@@ -5,7 +5,7 @@ import { useReducedMotion } from '../hooks/useA11y'
 import type { Track } from '../types'
 
 /** Karaoke-style lyrics: the active line is highlighted and kept centered; tap a line to seek. */
-interface LyricsProps {
+export interface LyricsProps {
   track: Track | null | undefined
   time: number
   onSeek?: (seconds: number) => void

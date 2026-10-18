@@ -153,6 +153,23 @@ while the reads run (`Promise.all`). The inline hydration code leaves the hook. 
 | A refused write hides data the person thinks was saved | refusal is always followed by words (dialog, toast, Storage row); a test per mode |
 | Retry writes an old value over a newer one | only the latest write of a key can retry; a test with a failure that arrives after a newer write |
 
+## As built
+
+Built in the three stages above and pushed together: the run that wrote them was cut off by the usage limit before its first push, and the whole tree was then verified as one.
+
+- **Where things are.** `lib/persist/gate.ts` (the store, `NotSavingError`, the claim), `write.ts` (the guarded writes; the retry sits behind a `RetryPort` so the unit tests wind it by hand) and the `idb.ts` handlers are start-up code. `load.ts`, `hydrate.ts`, `failures.ts`, `notices.ts` and the Storage panel's *Saving* card are lazy chunks. `load.ts` and `hydrate.ts` are handed `normalizeMeta` and the database reader instead of importing them: a lazy chunk that imports `trackmeta`/`db` makes the bundler cut shared files (`tags.ts`) out of the start-up chunk, which cost more than the lines saved.
+- **Room at start-up** came from code that is not needed at first paint: `ImportStatus` and the lyrics view are lazy chunks (idle preload), `file-text` joined `LAZY_ONLY_ICONS`, `AudioDecodeError` and `mightBeLossless` live in two tiny modules of their own, and the resolver loads the sniffing code only when a WAV or FLAC has to be told apart. The initial JS went from 124.6 to 122.7 of 125.0 kB even with the gate and the writer in it. The budget was not raised.
+- **Wording.** The dialog, the Storage card and the error text say another window *has taken over* the library, not that one *is open*: the window that took over may have closed since, and a taken window stays taken until it is reloaded, because it cannot know whether its copy of the library is still current.
+- **A change of mind about the older window.** The roadmap line said an older window *pauses*. It does not: it keeps playing and browsing, and only a change that would be lost is refused. Pausing would stop someone's music because a second tab was opened by accident, and the offline update flow opens windows side by side on purpose. Both windows can therefore still play at the same time.
+- **`describeSaveFailure`** knows `NotSavingError`, so the import, the tag editor and the restore say *not saving here* in their own failure messages instead of blaming the storage.
+
+### Known limits
+
+- The derived caches (`peaks:`, `chapters:`, `listen:`, `heard:`) and the settings in `localStorage` are outside the gate, as designed.
+- An automatic write (the resume point, a play count, a gain, the library upgrade) that fails for a real reason, not because the window is not saving, is still dropped silently: it writes itself again soon. F2 routes these to the error log.
+- A page that holds a Web Lock is probably not eligible for Chromium's back/forward cache. The app reloads from its own database quickly, and a music player that is playing is rarely cached anyway; if it ever matters, the claim could be made on the first change instead of at start-up.
+- A refused write is counted (`dropped` in the gate's snapshot), but nothing shows the count yet.
+
 ## Calls made without asking
 
 - Reads are all-or-nothing with three tries, and a failed read means a window that saves nothing: protecting what is stored matters more than showing a partial library.

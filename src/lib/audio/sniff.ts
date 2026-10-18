@@ -43,10 +43,8 @@ export async function sniffBlob(blob: Blob): Promise<{ container: Container; hea
   return { container: 'other', head }
 }
 
-/** A cheap, synchronous guess from the name and declared type: could this possibly be WAV or FLAC? */
-export function mightBeLossless(file: { name?: string; type?: string }): boolean {
-  return /\.(wav|wave|flac|fla)$/i.test(file.name ?? '') || /^audio\/(x-)?(wav|wave|vnd\.wave|flac)$/i.test(file.type ?? '')
-}
+// The cheap guess from the name and declared type lives in `lossless.ts`: the resolver needs it at start-up without all of this.
+export { mightBeLossless } from './lossless'
 
 const MIME: Record<Exclude<Container, 'other'>, readonly string[]> = {
   wav: ['audio/wav', 'audio/x-wav', 'audio/wave'],

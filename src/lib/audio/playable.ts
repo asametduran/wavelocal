@@ -1,10 +1,13 @@
 import type { ConvertResult } from './convert'
-import { AudioDecodeError } from './pcm'
-import { mightBeLossless, needsDecoder, sniffBlob } from './sniff'
+import { AudioDecodeError } from './errors'
+import { mightBeLossless } from './lossless'
 import type { WorkerRequest, WorkerResponse } from './decode.worker'
 
 /** Load the decoders on first use, so players that never meet an unplayable WAV/FLAC never download them. */
 const convertOnThisThread: ConvertFn = async (file, options) => (await import('./convert')).convertToWav(file, options)
+
+/** Looking inside a file (and the WAV parser it needs) is only fetched when a WAV or FLAC has to be told apart from a file the browser plays. */
+const loadSniffing = () => import('./sniff')
 
 /**
  * Decides, per track, what URL the `<audio>` element should be given. Most files are handed to the browser
@@ -88,6 +91,7 @@ export class PlayableResolver {
     if (deciding) return deciding
 
     const promise = (async () => {
+      const { needsDecoder, sniffBlob } = await loadSniffing()
       const { container, head } = await sniffBlob(track.file)
       if (!needsDecoder(container, head, this.element)) {
         this.verdicts.set(track.id, 'native')
@@ -110,6 +114,7 @@ export class PlayableResolver {
 
   /** True if this file is, by its content, WAV or FLAC (so a playback error is worth retrying through the decoder). */
   async isDecodable(track: PlayableTrack): Promise<boolean> {
+    const { sniffBlob } = await loadSniffing()
     const { container } = await sniffBlob(track.file)
     return container !== 'other'
   }

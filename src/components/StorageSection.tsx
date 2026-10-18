@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { HardDrive, RefreshCw, ShieldAlert, ShieldCheck, Trash2 } from 'lucide-react'
 import { confirmDialog, toast } from '../lib/overlays'
+import { writeGate } from '../lib/persist/gate'
 import { offline } from '../lib/offline/instance'
 import type { OfflineSnapshot } from '../lib/offline/updates'
-import { assessStorage, breakdown, formatBytes, formatPercent, largestTracks, libraryUsage, readEstimate, readPersisted, requestPersistence, warningFor } from '../lib/storage'
+import { assessStorage, breakdown, describeSaveFailure, formatBytes, formatPercent, largestTracks, libraryUsage, readEstimate, readPersisted, requestPersistence, warningFor } from '../lib/storage'
 import type { StorageEstimate } from '../lib/storage'
 import { countLabel } from '../lib/format'
 import type { PlayerApi } from '../types'
@@ -102,6 +103,41 @@ function OfflineCopy() {
   )
 }
 
+/** Whether the changes made in this window are being kept: working, failing and tried again, or not saved at all, and why. */
+function SavingStatus() {
+  const state = useSyncExternalStore(writeGate.subscribe, writeGate.snapshot)
+  const failing = state.failing.length > 0
+  let text = 'Your library, playlists and queue are saved on this device as you change them.'
+  let action: { label: string; run: () => void } | null = null
+  if (state.mode === 'loading') text = 'Opening your library…'
+  else if (state.mode === 'memory') {
+    text =
+      state.reason === 'unavailable'
+        ? 'Not saving: this browser does not let Wavelocal keep anything on this device. Your library is gone when this tab closes.'
+        : 'Not saving: Wavelocal could not open the library saved on this device, so it writes nothing in this window, to protect what is there. Your files are untouched.'
+    if (state.reason !== 'unavailable') action = { label: 'Reload to try again', run: () => location.reload() }
+  } else if (state.mode === 'taken') {
+    text = 'Not saving here: another window of Wavelocal has taken over your library. Changes made in this window are not saved.'
+    action = { label: 'Use this window', run: () => location.reload() }
+  } else if (failing) {
+    text = `The latest changes could not be saved yet. ${describeSaveFailure(state.error, 'Wavelocal keeps trying.')}`
+    action = { label: 'Try again', run: () => void import('../lib/persist/failures').then((failures) => failures.retryNow()) }
+  }
+  return (
+    <div className="mb-4 rounded-2xl bg-white/5 p-3" role="group" aria-label="Saving">
+      <h4 className="text-sm font-semibold text-zinc-200">Saving</h4>
+      <p className={`mt-1 text-sm ${state.mode === 'open' && !failing ? 'text-zinc-300' : 'text-amber-100'}`} role="status">
+        {text}
+      </p>
+      {action && (
+        <button type="button" className={`mt-3 ${button}`} onClick={action.run}>
+          {action.label}
+        </button>
+      )}
+    </div>
+  )
+}
+
 /**
  * How much room the library takes, how much the device has left, whether the browser may delete the library, and the tracks
  * that cost the most. Also the offline copy of the app: whether it is saved and whether a newer version is waiting.
@@ -165,6 +201,8 @@ export default function StorageSection({ p }: { p: PlayerApi }) {
         <HardDrive size={15} /> Storage
       </h3>
       <p className="mb-3 text-xs text-zinc-400">Wavelocal keeps its own copy of every track you add, inside this browser's storage. Nothing is uploaded anywhere.</p>
+
+      <SavingStatus />
 
       {estimate === undefined ? (
         <p className="text-sm text-zinc-400" role="status">

@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from 'react'
 import { FolderOpen, Headphones, Upload } from 'lucide-react'
 import Cover from './Cover'
 import FormatBadge from './FormatBadge'
-import Lyrics from './Lyrics'
+import type { LyricsProps } from './Lyrics'
 import RovingGroup from './RovingGroup'
 import Visualizer from './Visualizer'
 import { Deferred, lazyRetry, preloadWhenIdle } from './lazy'
@@ -13,6 +13,19 @@ export type StageTab = 'art' | 'lyrics' | 'queue'
 // The Up Next list is only fetched when its tab is first opened (or the app is idle).
 export const loadUpNext = () => import('./UpNextPanel')
 const UpNextPanel = lazyRetry(loadUpNext)
+
+// The lyrics are only fetched when their tab is first opened (or the app is idle).
+export const loadLyrics = () => import('./Lyrics')
+const LyricsView = lazyRetry(loadLyrics)
+
+/** The lyrics view of the Lyrics tab, on the stage and in the phone sheet. */
+export function LazyLyrics(props: LyricsProps) {
+  return (
+    <Deferred label="the lyrics" onDismiss={() => LyricsView.reset()}>
+      <LyricsView {...props} />
+    </Deferred>
+  )
+}
 
 /** The panel of the Up Next tab. */
 export function UpNextStage({ p, idBase, className }: { p: PlayerApi; idBase: string; className: string }) {
@@ -83,7 +96,7 @@ export default function NowPlaying({ p, onPickFiles, onPickFolder }: NowPlayingP
   const { current, playing } = p
   const [tab, setTab] = useState<StageTab>('art')
   const idBase = useId()
-  useEffect(() => preloadWhenIdle([loadUpNext]), [])
+  useEffect(() => preloadWhenIdle([loadUpNext, loadLyrics]), [])
 
   return (
     <section aria-label="Now playing" className="relative hidden min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-6 py-6 md:flex">
@@ -115,7 +128,7 @@ export default function NowPlaying({ p, onPickFiles, onPickFolder }: NowPlayingP
                 <div className="truncate text-sm font-semibold">{current.title}</div>
                 <div className="truncate text-xs text-zinc-400">{current.artist}</div>
               </div>
-              <Lyrics track={current} time={p.time} onSeek={p.seek} onLoad={p.attachLrc} className="min-h-0 flex-1" />
+              <LazyLyrics track={current} time={p.time} onSeek={p.seek} onLoad={p.attachLrc} className="min-h-0 flex-1" />
             </div>
           )}
         </div>

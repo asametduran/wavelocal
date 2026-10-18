@@ -15,7 +15,6 @@ import Playlist from './components/Playlist'
 import NowPlaying from './components/NowPlaying'
 import NowPlayingSheet from './components/NowPlayingSheet'
 import QueueSheet from './components/QueueSheet'
-import ImportStatus from './components/ImportStatus'
 import OverlayGate from './components/OverlayGate'
 import LiveRegion, { SkipLinks } from './components/LiveRegion'
 import { Deferred, lazyPanel, lazyRetry, preloadWhenIdle } from './components/lazy'
@@ -28,6 +27,9 @@ const ToolsModal = lazyPanel('the sound tools', loadTools)
 const ShortcutsModal = lazyPanel('the shortcut list', loadShortcuts)
 // What acts for a long recording while it plays (chapters, and with them the chapter keys and list) is a lazy chunk as well.
 const ListeningController = lazyRetry(() => import('./components/ListeningController'))
+// The progress pill of an import is only on screen while one runs, so its code is fetched when the app is idle, or when one starts.
+const loadImportStatus = () => import('./components/ImportStatus')
+const ImportStatus = lazyRetry(loadImportStatus)
 
 export default function App() {
   const p = usePlayer()
@@ -50,7 +52,7 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false)
 
   // Back button / remote Back / Escape: close the topmost sheet first.
-  useEffect(() => preloadWhenIdle([loadTools, loadShortcuts]), [])
+  useEffect(() => preloadWhenIdle([loadTools, loadShortcuts, loadImportStatus]), [])
 
   const onBack = useCallback(() => {
     if (helpOpen) {
@@ -228,7 +230,11 @@ export default function App() {
         </div>
       )}
 
-      <ImportStatus p={p} />
+      {(p.importProgress || p.upgradeProgress) && (
+        <Deferred label="the import progress" onDismiss={() => ImportStatus.reset()}>
+          <ImportStatus p={p} />
+        </Deferred>
+      )}
 
       {dragging && (
         <div className="pointer-events-none fixed inset-0 z-[60] grid place-items-center bg-base/80 backdrop-blur-sm">
